@@ -21,6 +21,8 @@ ADMIN_BLOCK_USER = "Блоклаш / блокдан чиқариш"
 ADMIN_TOGGLE_BUYER_ADMIN = "Харидор админи қилиш / олиб ташлаш"
 
 BUYER_COMPANY_REPORT = "Компания ҳисоботи"
+BUYER_DATE_REPORT = "📊 Ҳисобот (сана бўйича)"
+SUPPLIER_DATE_REPORT = "📊 Ҳисобот (сана бўйича)"
 
 ADMIN_COEFFICIENT = "Коэффициент созламаси ⚙️"
 ADMIN_PRODUCTS = "Махсулот коэффициентлари 📋"
@@ -33,6 +35,7 @@ def supplier_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=SUPPLIER_NEW_DELIVERY)],
             [KeyboardButton(text=SUPPLIER_MY_DELIVERIES)],
+            [KeyboardButton(text=SUPPLIER_DATE_REPORT)],
         ],
         resize_keyboard=True,
     )
@@ -42,6 +45,7 @@ def buyer_menu(is_buyer_admin: bool = False) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=BUYER_PENDING)],
         [KeyboardButton(text=BUYER_HISTORY)],
+        [KeyboardButton(text=BUYER_DATE_REPORT)],
     ]
     if is_buyer_admin:
         keyboard.append([KeyboardButton(text=BUYER_COMPANY_REPORT)])

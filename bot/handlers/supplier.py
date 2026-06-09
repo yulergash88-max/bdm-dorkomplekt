@@ -4,10 +4,11 @@ from aiogram.types import Message
 
 from bot.config import ADMIN_IDS
 from bot.database import db
-from bot.keyboards.menus import SUPPLIER_MY_DELIVERIES, SUPPLIER_NEW_DELIVERY, supplier_menu
-from bot.states import NewDelivery
+from bot.keyboards.menus import SUPPLIER_DATE_REPORT, SUPPLIER_MY_DELIVERIES, SUPPLIER_NEW_DELIVERY, supplier_menu
+from bot.states import DateRangeReport, NewDelivery
 from bot.utils.access import require_role
-from bot.utils.formatting import STATUS_LABELS, format_delivery
+from bot.utils.date_report import DATE_HINT, fmt, parse_date
+from bot.utils.formatting import STATUS_LABELS, format_date_report, format_delivery
 
 router = Router(name="supplier")
 router.message.filter(require_role("supplier"))
@@ -60,3 +61,39 @@ async def my_deliveries(message: Message) -> None:
 
     for delivery in deliveries[:20]:
         await message.answer(format_delivery(delivery))
+
+
+@router.message(F.text == SUPPLIER_DATE_REPORT)
+async def supplier_report_start(message: Message, state: FSMContext) -> None:
+    await state.update_data(report_for="supplier")
+    await state.set_state(DateRangeReport.entering_start_date)
+    await message.answer(f"📅 Бошланиш санасини киритинг ({DATE_HINT}):")
+
+
+@router.message(DateRangeReport.entering_start_date, F.text)
+async def supplier_report_enter_start(message: Message, state: FSMContext) -> None:
+    iso = parse_date(message.text)
+    if iso is None:
+        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:")
+        return
+    await state.update_data(date_from=iso)
+    await state.set_state(DateRangeReport.entering_end_date)
+    await message.answer(f"📅 Тугаш санасини киритинг ({DATE_HINT}):")
+
+
+@router.message(DateRangeReport.entering_end_date, F.text)
+async def supplier_report_enter_end(message: Message, state: FSMContext) -> None:
+    iso = parse_date(message.text)
+    if iso is None:
+        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+    date_from, date_to = data["date_from"], iso
+
+    deliveries = db.list_deliveries_in_range(message.from_user.id, None, date_from, date_to)
+    await message.answer(
+        format_date_report(deliveries, fmt(date_from), fmt(date_to)),
+        parse_mode="HTML",
+    )

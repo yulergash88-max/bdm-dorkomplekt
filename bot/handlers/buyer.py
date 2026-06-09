@@ -4,11 +4,12 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot.database import db
 from bot.keyboards.delivery import accept_reject_keyboard, buyer_weigh_keyboard
-from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
-from bot.states import BuyerWeighDelivery
+from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_DATE_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
+from bot.states import BuyerWeighDelivery, DateRangeReport
 from bot.utils.access import require_role
+from bot.utils.date_report import DATE_HINT, fmt, parse_date
 from bot.utils.export import deliveries_to_csv
-from bot.utils.formatting import format_delivery
+from bot.utils.formatting import format_date_report, format_delivery
 from bot.utils.reports import build_delivery_stats, format_delivery_stats
 
 router = Router(name="buyer")
@@ -195,6 +196,49 @@ async def company_report(message: Message) -> None:
     await message.answer(
         format_delivery_stats(stats),
         reply_markup=_company_export_keyboard(),
+    )
+
+
+@router.message(F.text == BUYER_DATE_REPORT)
+async def buyer_report_start(message: Message, state: FSMContext) -> None:
+    await state.update_data(report_for="buyer")
+    await state.set_state(DateRangeReport.entering_start_date)
+    await message.answer(f"📅 Бошланиш санасини киритинг ({DATE_HINT}):")
+
+
+@router.message(DateRangeReport.entering_start_date, F.text)
+async def report_enter_start(message: Message, state: FSMContext) -> None:
+    iso = parse_date(message.text)
+    if iso is None:
+        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:")
+        return
+    await state.update_data(date_from=iso)
+    await state.set_state(DateRangeReport.entering_end_date)
+    await message.answer(f"📅 Тугаш санасини киритинг ({DATE_HINT}):")
+
+
+@router.message(DateRangeReport.entering_end_date, F.text)
+async def report_enter_end(message: Message, state: FSMContext) -> None:
+    iso = parse_date(message.text)
+    if iso is None:
+        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+    date_from, date_to = data["date_from"], iso
+
+    user = db.get_user(message.from_user.id)
+    if user["company_name"]:
+        members = db.list_company_buyers(user["company_name"])
+        buyer_ids = [m["telegram_id"] for m in members]
+    else:
+        buyer_ids = [message.from_user.id]
+
+    deliveries = db.list_deliveries_in_range(None, buyer_ids, date_from, date_to)
+    await message.answer(
+        format_date_report(deliveries, fmt(date_from), fmt(date_to)),
+        parse_mode="HTML",
     )
 
 

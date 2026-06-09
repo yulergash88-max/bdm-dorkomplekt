@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from bot.keyboards.common import ROLE_LABELS
 
 STATUS_LABELS = {
@@ -32,6 +34,51 @@ def format_delivery(delivery: dict) -> str:
         diff = delivery["kub_difference"]
         sign = "+" if diff > 0 else ""
         lines.append(f"Фарқ (харидор − етказиб берувчи): {sign}{diff}")
+
+    return "\n".join(lines)
+
+
+def format_date_report(deliveries: list[dict], date_from: str, date_to: str) -> str:
+    if not deliveries:
+        return f"📊 <b>{date_from} — {date_to}</b>\n\nБу давр учун маълумот йўқ."
+
+    total = len(deliveries)
+    by_status: dict[str, list] = defaultdict(list)
+    for d in deliveries:
+        by_status[d["status"]].append(d)
+
+    status_icons = {
+        "completed": "✅",
+        "rejected": "❌",
+        "accepted": "🔄",
+        "sent_to_buyer": "📨",
+        "new": "🆕",
+        "weighed": "⚖️",
+    }
+
+    lines = [f"📊 <b>Ҳисобот: {date_from} — {date_to}</b>", f"Жами: <b>{total} та</b>", ""]
+
+    for status, items in sorted(by_status.items(), key=lambda x: x[0]):
+        icon = status_icons.get(status, "•")
+        label = STATUS_LABELS.get(status, status)
+        completed_kub = sum(d["buyer_kub"] for d in items if d.get("buyer_kub"))
+        supplier_kub = sum(d["supplier_kub"] for d in items if d.get("supplier_kub"))
+        kub_str = ""
+        if status == "completed":
+            kub_str = f" | Харидор куби: <b>{round(completed_kub, 2)} м³</b>"
+        elif supplier_kub:
+            kub_str = f" | <b>{round(supplier_kub, 2)} м³</b>"
+        lines.append(f"{icon} {label}: <b>{len(items)} та</b>{kub_str}")
+
+    by_product: dict[str, dict] = defaultdict(lambda: {"count": 0, "kub": 0.0})
+    for d in deliveries:
+        name = d.get("product_name") or "Номаълум"
+        by_product[name]["count"] += 1
+        by_product[name]["kub"] += d.get("supplier_kub") or 0
+
+    lines += ["", "📦 <b>Маҳсулотлар:</b>"]
+    for name, data in sorted(by_product.items()):
+        lines.append(f"  • {name}: {data['count']} та | {round(data['kub'], 2)} м³")
 
     return "\n".join(lines)
 

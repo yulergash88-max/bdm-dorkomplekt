@@ -276,6 +276,23 @@ def update_product_coefficient(product_name: str, coefficient: float) -> None:
     supabase.table("products").update({"coefficient": coefficient}).ilike("name", product_name.strip()).execute()
 
 
+def list_deliveries_in_range(supplier_id: int | None, buyer_ids: list[int] | None, date_from: str, date_to: str) -> list[dict]:
+    """date_from / date_to: ISO strings like '2026-06-01'"""
+    query = supabase.table("deliveries").select("*")
+    if supplier_id is not None:
+        query = query.eq("supplier_id", supplier_id)
+    if buyer_ids is not None:
+        query = query.in_("buyer_id", buyer_ids)
+    result = (
+        query
+        .gte("created_at", date_from + "T00:00:00")
+        .lte("created_at", date_to + "T23:59:59")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data
+
+
 def list_all_deliveries() -> list[dict]:
     result = supabase.table("deliveries").select("*").order("created_at", desc=True).execute()
     return result.data

@@ -33,3 +33,8 @@ class AdminEditUser(StatesGroup):
 class AdminSetProductCoefficient(StatesGroup):
     choosing_product = State()
     entering_value = State()
+
+
+class DateRangeReport(StatesGroup):
+    entering_start_date = State()
+    entering_end_date = State()
