@@ -12,7 +12,7 @@ class NewDelivery(StatesGroup):
     entering_supplier_kub = State()
 
 
-class WeighDelivery(StatesGroup):
+class BuyerWeighDelivery(StatesGroup):
     entering_tonnage = State()
 
 

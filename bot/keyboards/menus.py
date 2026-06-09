@@ -8,7 +8,6 @@ BUYER_HISTORY = "Тарих"
 
 ADMIN_PENDING_USERS = "Тасдиқ кутаётган фойдаланувчилар"
 ADMIN_UNASSIGNED = "Харидор тайинланмаган етказиб беришлар"
-ADMIN_ACCEPTED = "Қабул қилинган (тарози киритиш)"
 ADMIN_ALL_DELIVERIES = "Барча етказиб беришлар"
 ADMIN_USERS_SECTION = "Фойдаланувчилар бошқаруви"
 ADMIN_REPORTS_SECTION = "Ҳисоботлар"
@@ -55,7 +54,6 @@ def admin_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=ADMIN_PENDING_USERS)],
             [KeyboardButton(text=ADMIN_UNASSIGNED)],
-            [KeyboardButton(text=ADMIN_ACCEPTED)],
             [KeyboardButton(text=ADMIN_ALL_DELIVERIES)],
             [KeyboardButton(text=ADMIN_USERS_SECTION)],
             [KeyboardButton(text=ADMIN_REPORTS_SECTION)],

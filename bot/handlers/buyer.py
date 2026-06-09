@@ -1,9 +1,11 @@
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.database import db
-from bot.keyboards.delivery import accept_reject_keyboard
+from bot.keyboards.delivery import accept_reject_keyboard, buyer_weigh_keyboard
 from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
+from bot.states import BuyerWeighDelivery
 from bot.utils.access import require_role
 from bot.utils.export import deliveries_to_csv
 from bot.utils.formatting import format_delivery
@@ -71,10 +73,74 @@ async def accept_delivery(callback: CallbackQuery) -> None:
     db.assign_buyer(delivery_id, callback.from_user.id)
     db.accept_delivery(delivery_id)
 
-    await callback.message.edit_text(
-        callback.message.text + "\n\nҲолат: Қабул қилинди ✅"
-    )
+    await callback.message.edit_text(callback.message.text + "\n\nҲолат: Қабул қилинди ✅")
     await callback.answer()
+    await callback.message.answer(
+        "Тарози натижасини киритасизми?",
+        reply_markup=buyer_weigh_keyboard(delivery_id),
+    )
+
+
+@router.callback_query(F.data.startswith("buyer_weigh:"))
+async def buyer_start_weigh(callback: CallbackQuery, state: FSMContext) -> None:
+    delivery_id = int(callback.data.split(":")[1])
+    await state.update_data(delivery_id=delivery_id)
+    await state.set_state(BuyerWeighDelivery.entering_tonnage)
+    await callback.message.edit_text("Тарози натижасини тоннада киритинг (масалан: 23.8):")
+    await callback.answer()
+
+
+@router.message(BuyerWeighDelivery.entering_tonnage, F.text)
+async def buyer_enter_tonnage(message: Message, state: FSMContext) -> None:
+    try:
+        tonnage = float(message.text.replace(",", "."))
+    except ValueError:
+        await message.answer("Илтимос, рақам киритинг, масалан: 23.8")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+
+    delivery = db.get_delivery(data["delivery_id"])
+    coefficient = db.get_product_coefficient(delivery["product_name"])
+    db.set_buyer_tonnage(delivery["id"], tonnage)
+    buyer_kub = round(tonnage * coefficient, 3)
+    kub_difference = round(buyer_kub - delivery["supplier_kub"], 3)
+    db.complete_delivery(delivery["id"], coefficient, buyer_kub, kub_difference)
+
+    updated = db.get_delivery(delivery["id"])
+    await message.answer(
+        f"✅ Ҳисоб-китоб якунланди (коэффициент: {coefficient}):\n\n" + format_delivery(updated),
+    )
+
+    supplier = db.get_user(delivery["supplier_id"])
+    if supplier and supplier["telegram_id"] != 0:
+        await message.bot.send_message(
+            supplier["telegram_id"],
+            "Харидор тарози натижасини киритди, ҳисоб-китоб якунланди:\n\n" + format_delivery(updated),
+        )
+
+
+@router.callback_query(F.data.startswith("buyer_noweigh:"))
+async def buyer_no_weigh(callback: CallbackQuery) -> None:
+    delivery_id = int(callback.data.split(":")[1])
+    delivery = db.get_delivery(delivery_id)
+    if delivery is None or delivery["status"] != "accepted":
+        await callback.answer("Бу етказиб бериш аллақачон ишланган.", show_alert=True)
+        return
+
+    db.complete_delivery_no_weigh(delivery_id)
+    updated = db.get_delivery(delivery_id)
+
+    await callback.message.edit_text("✅ Тарозисиз якунланди:\n\n" + format_delivery(updated))
+    await callback.answer()
+
+    supplier = db.get_user(delivery["supplier_id"])
+    if supplier and supplier["telegram_id"] != 0:
+        await callback.message.bot.send_message(
+            supplier["telegram_id"],
+            "Харидор етказиб беришни тарозисиз қабул қилди:\n\n" + format_delivery(updated),
+        )
 
 
 @router.callback_query(F.data.startswith("reject:"))

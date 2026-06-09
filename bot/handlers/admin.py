@@ -6,9 +6,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from bot.config import ADMIN_IDS
 from bot.database import db
 from bot.keyboards.common import ROLE_LABELS
-from bot.keyboards.delivery import approve_user_keyboard, assign_buyer_keyboard, weigh_delivery_keyboard
+from bot.keyboards.delivery import approve_user_keyboard, assign_buyer_keyboard
 from bot.keyboards.menus import (
-    ADMIN_ACCEPTED,
     ADMIN_ADD_USER,
     ADMIN_ALL_DELIVERIES,
     ADMIN_COEFFICIENT,
@@ -37,7 +36,7 @@ from bot.keyboards.users import (
     role_pick_keyboard,
     user_list_keyboard,
 )
-from bot.states import AdminAddUser, AdminEditUser, AdminSetCoefficient, AdminSetProductCoefficient, WeighDelivery
+from bot.states import AdminAddUser, AdminEditUser, AdminSetCoefficient, AdminSetProductCoefficient
 from bot.utils.access import require_admin
 from bot.utils.export import deliveries_to_csv, users_to_csv
 from bot.utils.formatting import format_delivery, format_user
@@ -183,83 +182,6 @@ async def all_deliveries(message: Message) -> None:
 
     for delivery in deliveries[:30]:
         await message.answer(format_delivery(delivery))
-
-
-# --- weigh accepted deliveries -----------------------------------------------
-
-
-@router.message(F.text == ADMIN_ACCEPTED)
-async def accepted_deliveries(message: Message) -> None:
-    deliveries = db.list_deliveries_by_status("accepted")
-    if not deliveries:
-        await message.answer("Қабул қилинган ва тарози кутаётган етказиб беришлар йўқ.")
-        return
-
-    for delivery in deliveries:
-        await message.answer(
-            format_delivery(delivery),
-            reply_markup=weigh_delivery_keyboard(delivery["id"]),
-        )
-
-
-@router.callback_query(F.data.startswith("weigh:"))
-async def start_weigh(callback: CallbackQuery, state: FSMContext) -> None:
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer()
-        return
-
-    delivery_id = int(callback.data.split(":")[1])
-    delivery = db.get_delivery(delivery_id)
-    if delivery is None or delivery["status"] != "accepted":
-        await callback.answer("Бу етказиб бериш аллақачон ишланган.", show_alert=True)
-        return
-
-    await state.update_data(delivery_id=delivery_id)
-    await state.set_state(WeighDelivery.entering_tonnage)
-    await callback.message.edit_text(callback.message.text + "\n\n⚖️ Тарози киритилмоқда...")
-    await callback.message.answer("Тарози натижасини тоннада киритинг (масалан: 23.8):")
-    await callback.answer()
-
-
-@router.message(WeighDelivery.entering_tonnage, F.text)
-async def admin_enter_tonnage(message: Message, state: FSMContext) -> None:
-    try:
-        tonnage = float(message.text.replace(",", "."))
-    except ValueError:
-        await message.answer("Илтимос, рақам киритинг, масалан: 23.8")
-        return
-
-    data = await state.get_data()
-    await state.clear()
-
-    delivery = db.get_delivery(data["delivery_id"])
-    coefficient = db.get_product_coefficient(delivery["product_name"])
-
-    db.set_buyer_tonnage(delivery["id"], tonnage)
-    buyer_kub = round(tonnage * coefficient, 3)
-    kub_difference = round(buyer_kub - delivery["supplier_kub"], 3)
-    db.complete_delivery(delivery["id"], coefficient, buyer_kub, kub_difference)
-
-    updated = db.get_delivery(delivery["id"])
-    await message.answer(
-        f"✅ Ҳисоб-китоб якунланди (коэффициент: {coefficient}):\n\n" + format_delivery(updated),
-        reply_markup=admin_menu(),
-    )
-
-    buyer = db.get_user(delivery["buyer_id"]) if delivery["buyer_id"] else None
-    if buyer:
-        await message.bot.send_message(
-            buyer["telegram_id"],
-            "Сизнинг қабул қилган етказиб беришингиз бўйича ҳисоб-китоб якунланди:\n\n"
-            + format_delivery(updated),
-        )
-    supplier = db.get_user(delivery["supplier_id"])
-    if supplier and supplier["telegram_id"] != 0:
-        await message.bot.send_message(
-            supplier["telegram_id"],
-            "Сизнинг етказиб беришингиз бўйича ҳисоб-китоб якунланди:\n\n"
-            + format_delivery(updated),
-        )
 
 
 # --- add user ---------------------------------------------------------------
@@ -576,41 +498,6 @@ async def toggle_buyer_admin(callback: CallbackQuery) -> None:
     )
     await callback.answer()
     await notify_user(callback, telegram_id, notice)
-
-
-# --- no-weigh complete -------------------------------------------------------
-
-
-@router.callback_query(F.data.startswith("noweigh:"))
-async def complete_no_weigh(callback: CallbackQuery) -> None:
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer()
-        return
-
-    delivery_id = int(callback.data.split(":")[1])
-    delivery = db.get_delivery(delivery_id)
-    if delivery is None or delivery["status"] != "accepted":
-        await callback.answer("Бу етказиб бериш аллақачон ишланган.", show_alert=True)
-        return
-
-    db.complete_delivery_no_weigh(delivery_id)
-    updated = db.get_delivery(delivery_id)
-
-    await callback.message.edit_text("✅ Тарозисиз якунланди:\n\n" + format_delivery(updated))
-    await callback.answer()
-
-    buyer = db.get_user(delivery["buyer_id"]) if delivery["buyer_id"] else None
-    if buyer:
-        await callback.message.bot.send_message(
-            buyer["telegram_id"],
-            "Сизнинг қабул қилган етказиб беришингиз якунланди:\n\n" + format_delivery(updated),
-        )
-    supplier = db.get_user(delivery["supplier_id"])
-    if supplier and supplier["telegram_id"] != 0:
-        await callback.message.bot.send_message(
-            supplier["telegram_id"],
-            "Сизнинг етказиб беришингиз якунланди:\n\n" + format_delivery(updated),
-        )
 
 
 # --- product coefficient settings --------------------------------------------
