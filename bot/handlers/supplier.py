@@ -40,15 +40,17 @@ async def enter_supplier_kub(message: Message, state: FSMContext) -> None:
     await state.clear()
 
     await message.answer(
-        "Етказиб бериш яратилди ва харидорга юбориш учун админга жўнатилди.\n\n"
+        "✅ <b>Етказиб бериш яратилди!</b>\nАдмин харидорни тайинлайди.\n\n"
         + format_delivery(delivery),
         reply_markup=supplier_menu(),
+        parse_mode="HTML",
     )
 
     for admin_id in ADMIN_IDS:
         await message.bot.send_message(
             admin_id,
-            "Янги етказиб бериш — харидор тайинлаш керак:\n\n" + format_delivery(delivery),
+            "🔔 <b>Янги етказиб бериш — харидор тайинланмаган</b>\n\n" + format_delivery(delivery),
+            parse_mode="HTML",
         )
 
 
@@ -60,7 +62,7 @@ async def my_deliveries(message: Message) -> None:
         return
 
     for delivery in deliveries[:20]:
-        await message.answer(format_delivery(delivery))
+        await message.answer(format_delivery(delivery), parse_mode="HTML")
 
 
 @router.message(F.text == SUPPLIER_DATE_REPORT)

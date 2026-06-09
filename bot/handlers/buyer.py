@@ -54,6 +54,7 @@ async def pending_deliveries(message: Message) -> None:
         await message.answer(
             format_delivery(delivery),
             reply_markup=accept_reject_keyboard(delivery["id"]),
+            parse_mode="HTML",
         )
 
 
@@ -74,11 +75,12 @@ async def accept_delivery(callback: CallbackQuery) -> None:
     db.assign_buyer(delivery_id, callback.from_user.id)
     db.accept_delivery(delivery_id)
 
-    await callback.message.edit_text(callback.message.text + "\n\nҲолат: Қабул қилинди ✅")
-    await callback.answer()
+    await callback.message.edit_text(callback.message.text + "\n\n✅ <b>Қабул қилинди</b>", parse_mode="HTML")
+    await callback.answer("Қабул қилинди ✅")
     await callback.message.answer(
-        "Тарози натижасини киритасизми?",
+        "⚖️ <b>Тарози натижасини киритасизми?</b>",
         reply_markup=buyer_weigh_keyboard(delivery_id),
+        parse_mode="HTML",
     )
 
 
@@ -87,7 +89,7 @@ async def buyer_start_weigh(callback: CallbackQuery, state: FSMContext) -> None:
     delivery_id = int(callback.data.split(":")[1])
     await state.update_data(delivery_id=delivery_id)
     await state.set_state(BuyerWeighDelivery.entering_tonnage)
-    await callback.message.edit_text("Тарози натижасини тоннада киритинг (масалан: 23.8):")
+    await callback.message.edit_text("⚖️ <b>Тарози натижасини тоннада киритинг</b>\n<i>Масалан: 23.8</i>", parse_mode="HTML")
     await callback.answer()
 
 
@@ -111,14 +113,16 @@ async def buyer_enter_tonnage(message: Message, state: FSMContext) -> None:
 
     updated = db.get_delivery(delivery["id"])
     await message.answer(
-        f"✅ Ҳисоб-китоб якунланди (коэффициент: {coefficient}):\n\n" + format_delivery(updated),
+        f"✅ <b>Ҳисоб-китоб якунланди!</b>\n🔢 Коэффициент: <b>{coefficient}</b>\n\n" + format_delivery(updated),
+        parse_mode="HTML",
     )
 
     supplier = db.get_user(delivery["supplier_id"])
     if supplier and supplier["telegram_id"] != 0:
         await message.bot.send_message(
             supplier["telegram_id"],
-            "Харидор тарози натижасини киритди, ҳисоб-китоб якунланди:\n\n" + format_delivery(updated),
+            "🏁 <b>Ҳисоб-китоб якунланди!</b>\nХаридор тарozi натижасини киритди:\n\n" + format_delivery(updated),
+            parse_mode="HTML",
         )
 
 
@@ -133,14 +137,15 @@ async def buyer_no_weigh(callback: CallbackQuery) -> None:
     db.complete_delivery_no_weigh(delivery_id)
     updated = db.get_delivery(delivery_id)
 
-    await callback.message.edit_text("✅ Тарозисиз якунланди:\n\n" + format_delivery(updated))
-    await callback.answer()
+    await callback.message.edit_text("✅ <b>Тарозисиз якунланди</b>\n\n" + format_delivery(updated), parse_mode="HTML")
+    await callback.answer("Якунланди ✅")
 
     supplier = db.get_user(delivery["supplier_id"])
     if supplier and supplier["telegram_id"] != 0:
         await callback.message.bot.send_message(
             supplier["telegram_id"],
-            "Харидор етказиб беришни тарозисиз қабул қилди:\n\n" + format_delivery(updated),
+            "✅ <b>Харидор тарозисиз қабул қилди:</b>\n\n" + format_delivery(updated),
+            parse_mode="HTML",
         )
 
 
@@ -175,7 +180,7 @@ async def history(message: Message) -> None:
         return
 
     for delivery in completed[:20]:
-        await message.answer(format_delivery(delivery))
+        await message.answer(format_delivery(delivery), parse_mode="HTML")
 
 
 # --- buyer-admin: company-wide report -----------------------------------------

@@ -26,35 +26,40 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
     if message.from_user.id in ADMIN_IDS:
         await message.answer(
-            "Ассалому алейкум, админ! Бошқарув менюси қуйида.",
+            "👋 <b>Ассалому алейкум, Админ!</b>\n\nБошқарув менюси қуйида 👇",
             reply_markup=admin_menu(),
+            parse_mode="HTML",
         )
         return
 
     user = db.get_user(message.from_user.id)
     if user is None:
         await message.answer(
-            "Ассалому алейкум! Давом этиш учун телефон рақамингизни юборинг.\n"
-            "Агар сизни админ олдиндан тизимга қўшган бўлса — ҳисобингиз шу рақам "
-            "орқали автоматик танилади ва фаоллаштирилади.",
+            "👋 <b>Ассалому алейкум!</b>\n\n"
+            "Давом этиш учун 📱 телефон рақамингизни юборинг.\n\n"
+            "<i>Агар сизни админ олдиндан тизимга қўшган бўлса — "
+            "ҳисобингиз шу рақам орқали автоматик фаоллашади.</i>",
             reply_markup=phone_request_keyboard(),
+            parse_mode="HTML",
         )
         await state.set_state(Registration.entering_phone)
         return
 
     if user["is_blocked"]:
-        await message.answer("Сизнинг ҳисобингиз админ томонидан блокланган.")
+        await message.answer("⛔ <b>Ҳисобингиз блокланган.</b>\nАдминга мурожаат қилинг.", parse_mode="HTML")
         return
 
     if not user["is_approved"]:
         await message.answer(
-            "Сиз рўйхатдан ўтгансиз. Админ тасдиғини кутинг — тасдиқлангач сизга хабар берамиз."
+            "⏳ <b>Рўйхатдан ўтдингиз.</b>\n\nАдмин тасдиғини кутинг — тасдиқлангач сизга хабар берилади.",
+            parse_mode="HTML",
         )
         return
 
     await message.answer(
-        f"Хуш келибсиз, {user['full_name']} ({ROLE_LABELS[user['role']]})!",
+        f"✅ <b>Хуш келибсиз, {user['full_name']}!</b>\n🎭 {ROLE_LABELS[user['role']]}",
         reply_markup=menu_for(user),
+        parse_mode="HTML",
     )
 
 
@@ -75,17 +80,19 @@ async def handle_phone(message: Message, state: FSMContext, phone: str) -> None:
         user = db.claim_pending_invite(invite, message.from_user.id, phone, tg_full_name)
         await state.clear()
         await message.answer(
-            f"Хуш келибсиз, {user['full_name']}! Сиз админ томонидан тизимга қўшилгансиз — "
-            "ҳисобингиз фаоллаштирилди.",
+            f"✅ <b>Хуш келибсиз, {user['full_name']}!</b>\n\n"
+            "Сиз админ томонидан тизимга қўшилгансиз — ҳисобингиз фаоллаштирилди.",
             reply_markup=menu_for(user),
+            parse_mode="HTML",
         )
         return
 
     await state.update_data(phone=phone, user_id=message.from_user.id)
     await state.set_state(Registration.choosing_role)
     await message.answer(
-        "Сиз ким сифатида рўйхатдан ўтасиз?",
+        "👤 <b>Сиз ким сифатида рўйхатдан ўтасиз?</b>",
         reply_markup=role_choice_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -124,19 +131,24 @@ async def finish_registration(message: Message, state: FSMContext) -> None:
 
     if user["is_approved"]:
         await message.answer(
-            f"Рўйхатдан ўтиш якунланди! Хуш келибсиз, {full_name}.",
+            f"🎉 <b>Рўйхатдан ўтиш якунланди!</b>\n\nХуш келибсиз, <b>{full_name}</b>.",
             reply_markup=menu_for(user),
+            parse_mode="HTML",
         )
     else:
         await message.answer(
-            "Рўйхатдан ўтиш якунланди. Эндиликда админ сизни тасдиқлашини кутинг.",
+            "✅ <b>Рўйхатдан ўтдингиз!</b>\n\n⏳ Админ тасдиғини кутинг — тасдиқлангач сизга хабар берилади.",
             reply_markup=menu_for(user),
+            parse_mode="HTML",
         )
         for admin_id in ADMIN_IDS:
             await message.bot.send_message(
                 admin_id,
-                f"Янги фойдаланувчи тасдиқ кутмоқда:\n"
-                f"Исми: {full_name}\nРоли: {ROLE_LABELS[role]}\nТелефон: {phone}\n"
-                f"ID: {user['telegram_id']}\n\n"
-                f"Тасдиқлаш учун «Тасдиқ кутаётган фойдаланувчилар» менюсидан фойдаланинг.",
+                f"🔔 <b>Янги фойдаланувчи тасдиқ кутмоқда</b>\n"
+                f"─────────────────────\n"
+                f"👤 Исми: <b>{full_name}</b>\n"
+                f"🎭 Роли: <b>{ROLE_LABELS[role]}</b>\n"
+                f"📱 Телефон: <b>{phone}</b>\n"
+                f"🆔 ID: <code>{user['telegram_id']}</code>",
+                parse_mode="HTML",
             )

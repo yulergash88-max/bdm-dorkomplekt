@@ -67,20 +67,22 @@ async def _process_sale(text: str) -> None:
         for member in company_members:
             await _main_bot.send_message(
                 member["telegram_id"],
-                "Сизга умумий бот орқали янги етказиб бериш юборилди — қабул қилинг ёки рад этинг:\n\n"
+                "📦 <b>Янги етказиб бериш!</b>\nҚабул қилинг ёки рад этинг:\n\n"
                 + format_delivery(assigned),
                 reply_markup=accept_reject_keyboard(assigned["id"]),
+                parse_mode="HTML",
             )
     else:
         note = (
-            f"\n\nНомаълум мижоз: «{parsed.client_name}» — рўйхатдаги ҳеч бир харидор компаниясига мос келмади."
+            f"\n\n⚠️ Номаълум мижоз: «<b>{parsed.client_name}</b>» — харидор компаниясига мос келмади."
             if parsed.client_name else ""
         )
         for admin_id in ADMIN_IDS:
             await _main_bot.send_message(
                 admin_id,
-                "Умумий бот хабаридан янги етказиб бериш яратилди — харидор тайинлаш керак:"
+                "🔔 <b>Янги етказиб бериш — харидор тайинланмаган</b>"
                 + note + "\n\n" + format_delivery(delivery),
+                parse_mode="HTML",
             )
 
 

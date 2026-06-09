@@ -141,6 +141,7 @@ async def unassigned_deliveries(message: Message) -> None:
         await message.answer(
             format_delivery(delivery),
             reply_markup=assign_buyer_keyboard(delivery["id"], approved_buyers),
+            parse_mode="HTML",
         )
 
 
@@ -163,13 +164,15 @@ async def assign_buyer(callback: CallbackQuery) -> None:
     updated = db.get_delivery(delivery_id)
 
     await callback.message.edit_text(
-        callback.message.text + f"\n\nТайинланди: {buyer['full_name']} ✅"
+        callback.message.text + f"\n\n✅ Тайинланди: <b>{buyer['full_name']}</b>",
+        parse_mode="HTML",
     )
-    await callback.answer()
+    await callback.answer("Тайинланди ✅")
 
     await callback.message.bot.send_message(
         buyer_id,
-        "Сизга янги етказиб бериш тайинланди:\n\n" + format_delivery(updated),
+        "📦 <b>Сизга янги етказиб бериш тайинланди:</b>\n\n" + format_delivery(updated),
+        parse_mode="HTML",
     )
 
 
@@ -181,7 +184,7 @@ async def all_deliveries(message: Message) -> None:
         return
 
     for delivery in deliveries[:30]:
-        await message.answer(format_delivery(delivery))
+        await message.answer(format_delivery(delivery), parse_mode="HTML")
 
 
 # --- add user ---------------------------------------------------------------
@@ -254,7 +257,7 @@ async def list_all_users(message: Message) -> None:
     chunk_size = 10
     for offset in range(0, len(users), chunk_size):
         chunk = users[offset : offset + chunk_size]
-        await message.answer("\n\n".join(format_user(user) for user in chunk))
+        await message.answer("\n\n".join(format_user(user) for user in chunk), parse_mode="HTML")
 
 
 # --- edit user ---------------------------------------------------------------
@@ -312,8 +315,9 @@ async def edit_user_save_value(message: Message, state: FSMContext) -> None:
 
     user = db.get_user(telegram_id)
     await message.answer(
-        "Маълумот янгиланди:\n\n" + format_user(user),
+        "✅ Маълумот янгиланди:\n\n" + format_user(user),
         reply_markup=admin_users_menu(),
+        parse_mode="HTML",
     )
     await notify_user(
         message,
@@ -365,7 +369,7 @@ async def change_role_apply(callback: CallbackQuery) -> None:
     db.update_user(telegram_id, role=role)
     user = db.get_user(telegram_id)
 
-    await callback.message.edit_text("Роль янгиланди:\n\n" + format_user(user))
+    await callback.message.edit_text("✅ Роль янгиланди:\n\n" + format_user(user), parse_mode="HTML")
     await callback.answer()
     await notify_user(
         callback,
@@ -405,6 +409,7 @@ async def view_block_status(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         format_user(user),
         reply_markup=block_toggle_keyboard(telegram_id, user["is_blocked"]),
+        parse_mode="HTML",
     )
     await callback.answer()
 
@@ -432,6 +437,7 @@ async def toggle_block(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         format_user(updated),
         reply_markup=block_toggle_keyboard(telegram_id, updated["is_blocked"]),
+        parse_mode="HTML",
     )
     await callback.answer()
     await notify_user(callback, telegram_id, notice)
@@ -468,6 +474,7 @@ async def view_buyer_admin_status(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         format_user(user),
         reply_markup=buyer_admin_toggle_keyboard(telegram_id, user["is_buyer_admin"]),
+        parse_mode="HTML",
     )
     await callback.answer()
 
@@ -495,6 +502,7 @@ async def toggle_buyer_admin(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         format_user(updated),
         reply_markup=buyer_admin_toggle_keyboard(telegram_id, updated["is_buyer_admin"]),
+        parse_mode="HTML",
     )
     await callback.answer()
     await notify_user(callback, telegram_id, notice)
