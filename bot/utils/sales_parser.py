@@ -4,7 +4,7 @@ from dataclasses import dataclass
 _TYPE_SAVDO_RE = re.compile(r"Тип:\s*Савдо", re.IGNORECASE)
 _CLIENT_RE = re.compile(r"Мижоз:\s*(.+)", re.IGNORECASE)
 _QUANTITY_RE = re.compile(r"Кол-во:\s*([\d\s.,]+?)\s*м3", re.IGNORECASE)
-_CAR_RE = re.compile(r"Машина[а-яёА-ЯЁ]*:\s*(.+)", re.IGNORECASE)
+_CAR_RE = re.compile(r"(?:Машина[а-яёА-ЯЁ]*|Транспорт):\s*(.+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
