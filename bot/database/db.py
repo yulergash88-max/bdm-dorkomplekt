@@ -281,17 +281,39 @@ def update_product_coefficient(product_name: str, coefficient: float) -> None:
     supabase.table("products").update({"coefficient": coefficient}).ilike("name", product_name.strip()).execute()
 
 
-def list_deliveries_in_range(supplier_id: int | None, buyer_ids: list[int] | None, date_from: str, date_to: str) -> list[dict]:
+def list_deliveries_in_range(supplier_ids: list[int] | None, buyer_ids: list[int] | None, date_from: str, date_to: str) -> list[dict]:
     """date_from / date_to: ISO strings like '2026-06-01'"""
     query = supabase.table("deliveries").select("*")
-    if supplier_id is not None:
-        query = query.eq("supplier_id", supplier_id)
+    if supplier_ids is not None:
+        query = query.in_("supplier_id", supplier_ids)
     if buyer_ids is not None:
         query = query.in_("buyer_id", buyer_ids)
     result = (
         query
         .gte("created_at", date_from + "T00:00:00")
         .lte("created_at", date_to + "T23:59:59")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data
+
+
+def list_company_suppliers(company_name: str) -> list[dict]:
+    result = (
+        supabase.table("users")
+        .select("*")
+        .eq("role", "supplier")
+        .eq("company_name", company_name)
+        .execute()
+    )
+    return result.data
+
+
+def list_deliveries_by_suppliers(supplier_ids: list[int]) -> list[dict]:
+    result = (
+        supabase.table("deliveries")
+        .select("*")
+        .in_("supplier_id", supplier_ids)
         .order("created_at", desc=True)
         .execute()
     )

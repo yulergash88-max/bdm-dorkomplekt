@@ -15,7 +15,7 @@ from bot.states import DateRangeReport
 from bot.utils.access import require_role
 from bot.utils.date_report import DATE_HINT, fmt, parse_date, preset_to_range
 from bot.utils.export import deliveries_to_csv_by_date
-from bot.utils.formatting import STATUS_LABELS, format_date_report, format_delivery
+from bot.utils.formatting import format_date_report, format_delivery
 
 router = Router(name="supplier")
 router.message.filter(require_role("supplier"))
@@ -30,21 +30,29 @@ async def _try_delete(bot, chat_id: int, message_id: int) -> None:
         pass
 
 
+def _company_supplier_ids(user: dict) -> list[int]:
+    """All telegram_ids in the same supplier company (or just self if no company)."""
+    if user.get("company_name"):
+        members = db.list_company_suppliers(user["company_name"])
+        ids = [m["telegram_id"] for m in members if m["telegram_id"] != 0]
+        return ids if ids else [user["telegram_id"]]
+    return [user["telegram_id"]]
+
 
 @router.message(F.text == SUPPLIER_MY_DELIVERIES)
 async def my_deliveries(message: Message) -> None:
-    deliveries = db.list_deliveries_by_supplier(message.from_user.id)
+    user = db.get_user(message.from_user.id)
+    supplier_ids = _company_supplier_ids(user)
+    deliveries = db.list_deliveries_by_suppliers(supplier_ids)
     if not deliveries:
         await message.answer("Сизда ҳали етказиб беришлар йўқ.")
         return
-
     for delivery in deliveries[:20]:
         await message.answer(format_delivery(delivery), parse_mode="HTML")
 
 
 @router.message(F.text == SUPPLIER_DATE_REPORT)
 async def supplier_report_start(message: Message, state: FSMContext) -> None:
-    await state.update_data(report_for="supplier")
     await state.set_state(DateRangeReport.entering_start_date)
     await message.answer("📊 <b>Давр танланг:</b>", reply_markup=date_range_keyboard(), parse_mode="HTML")
 
@@ -102,12 +110,18 @@ async def _send_supplier_report(message: Message, date_from: str, date_to: str) 
     if prev:
         await _try_delete(message.bot, prev[0], prev[1])
 
-    deliveries = db.list_deliveries_in_range(message.from_user.id, None, date_from, date_to)
+    user = db.get_user(message.from_user.id)
+    supplier_ids = _company_supplier_ids(user)
+    deliveries = db.list_deliveries_in_range(supplier_ids, None, date_from, date_to)
+
     sent = await message.answer(
         format_date_report(deliveries, fmt(date_from), fmt(date_to)),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="📥 Excel юклаб олиш", callback_data=f"excel_supplier:{date_from}:{date_to}:{message.from_user.id}")
+            InlineKeyboardButton(
+                text="📥 Excel юклаб олиш",
+                callback_data=f"excel_supplier:{date_from}:{date_to}",
+            )
         ]]),
     )
     _last_report_msg[message.from_user.id] = (sent.chat.id, sent.message_id)
@@ -117,8 +131,10 @@ async def _send_supplier_report(message: Message, date_from: str, date_to: str) 
 @router.callback_query(F.data.startswith("excel_supplier:"))
 async def export_supplier_excel(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
-    date_from, date_to, supplier_id = parts[1], parts[2], int(parts[3])
-    deliveries = db.list_deliveries_in_range(supplier_id, None, date_from, date_to)
+    date_from, date_to = parts[1], parts[2]
+    user = db.get_user(callback.from_user.id)
+    supplier_ids = _company_supplier_ids(user)
+    deliveries = db.list_deliveries_in_range(supplier_ids, None, date_from, date_to)
     await callback.message.answer_document(
         deliveries_to_csv_by_date(deliveries, fmt(date_from), fmt(date_to))
     )
