@@ -27,6 +27,16 @@ router.message.filter(require_role("buyer"))
 
 EXPORT_COMPANY_DELIVERIES_CSV = "export_company_deliveries_csv"
 
+# Tracks last report message per user so it can be deleted before sending a new one
+_last_report_msg: dict[int, tuple[int, int]] = {}  # user_id → (chat_id, message_id)
+
+
+async def _try_delete(bot, chat_id: int, message_id: int) -> None:
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
 
 def _company_export_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -85,8 +95,8 @@ async def accept_delivery(callback: CallbackQuery) -> None:
     db.assign_buyer(delivery_id, callback.from_user.id)
     db.accept_delivery(delivery_id)
 
-    await callback.message.edit_text(callback.message.text + "\n\n✅ <b>Қабул қилинди</b>", parse_mode="HTML")
     await callback.answer("Қабул қилинди ✅")
+    await callback.message.delete()
     await callback.message.answer(
         "⚖️ <b>Тарози натижасини киритасизми?</b>",
         reply_markup=buyer_weigh_keyboard(delivery_id),
@@ -183,8 +193,14 @@ async def buyer_no_weigh(callback: CallbackQuery) -> None:
     db.complete_delivery_no_weigh(delivery_id)
     updated = db.get_delivery(delivery_id)
 
-    await callback.message.edit_text("✅ <b>Тарозисиз якунланди</b>\n\n" + format_delivery(updated), parse_mode="HTML")
     await callback.answer("Якунланди ✅")
+    await callback.message.delete()
+    user = db.get_user(callback.from_user.id)
+    await callback.message.answer(
+        "✅ <b>Тарозисиз якунланди</b>\n\n" + format_delivery(updated),
+        parse_mode="HTML",
+        reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
+    )
 
     supplier = db.get_user(delivery["supplier_id"])
     if supplier and supplier["telegram_id"] != 0:
@@ -210,8 +226,8 @@ async def reject_delivery(callback: CallbackQuery) -> None:
         return
 
     db.reject_delivery(delivery_id)
-    await callback.message.edit_text(callback.message.text + "\n\nҲолат: Рад этилди ❌")
-    await callback.answer()
+    await callback.answer("Рад этилди ❌")
+    await callback.message.delete()
 
 
 
@@ -323,17 +339,22 @@ async def _send_buyer_report(message: Message, date_from: str, date_to: str) -> 
         buyer_ids = [m["telegram_id"] for m in members]
     else:
         buyer_ids = [message.from_user.id]
-
     if not buyer_ids:
         buyer_ids = [message.from_user.id]
 
+    # Delete previous report message if exists
+    prev = _last_report_msg.get(message.from_user.id)
+    if prev:
+        await _try_delete(message.bot, prev[0], prev[1])
+
     deliveries = db.list_deliveries_in_range(None, buyer_ids, date_from, date_to)
-    await message.answer(
+    sent = await message.answer(
         format_date_report(deliveries, fmt(date_from), fmt(date_to)),
         parse_mode="HTML",
         reply_markup=_excel_keyboard("buyer", date_from, date_to),
     )
-    await message.answer("Менюга қайтдингиз.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+    _last_report_msg[message.from_user.id] = (sent.chat.id, sent.message_id)
+    await message.answer("📋 Менюга қайтдингиз.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
 
 
 @router.callback_query(F.data.startswith("excel_buyer:"))

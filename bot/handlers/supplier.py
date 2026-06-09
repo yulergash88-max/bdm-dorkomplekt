@@ -21,6 +21,15 @@ from bot.utils.formatting import STATUS_LABELS, format_date_report, format_deliv
 router = Router(name="supplier")
 router.message.filter(require_role("supplier"))
 
+_last_report_msg: dict[int, tuple[int, int]] = {}
+
+
+async def _try_delete(bot, chat_id: int, message_id: int) -> None:
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
 
 @router.message(F.text == SUPPLIER_NEW_DELIVERY)
 async def start_new_delivery(message: Message, state: FSMContext) -> None:
@@ -129,15 +138,20 @@ async def supplier_report_enter_end(message: Message, state: FSMContext) -> None
 
 
 async def _send_supplier_report(message: Message, date_from: str, date_to: str) -> None:
+    prev = _last_report_msg.get(message.from_user.id)
+    if prev:
+        await _try_delete(message.bot, prev[0], prev[1])
+
     deliveries = db.list_deliveries_in_range(message.from_user.id, None, date_from, date_to)
-    await message.answer(
+    sent = await message.answer(
         format_date_report(deliveries, fmt(date_from), fmt(date_to)),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="📥 Excel юклаб олиш", callback_data=f"excel_supplier:{date_from}:{date_to}:{message.from_user.id}")
         ]]),
     )
-    await message.answer("Менюга қайтдингиз.", reply_markup=supplier_menu())
+    _last_report_msg[message.from_user.id] = (sent.chat.id, sent.message_id)
+    await message.answer("📋 Менюга қайтдингиз.", reply_markup=supplier_menu())
 
 
 @router.callback_query(F.data.startswith("excel_supplier:"))
