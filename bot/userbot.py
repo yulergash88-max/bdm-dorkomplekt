@@ -53,11 +53,13 @@ def _make_client() -> Client:
     )
 
 
-async def _forward_to_suppliers(text: str) -> None:
-    """Send every group message to all active suppliers regardless of whether it's parseable."""
+async def _forward_to_suppliers(text: str, exclude_id: int | None = None) -> None:
+    """Forward every group message to all active suppliers (skip the sender to avoid duplicate)."""
     suppliers = db.list_users_by_role("supplier")
     for s in suppliers:
         if s["telegram_id"] == 0 or not s["is_approved"] or s["is_blocked"]:
+            continue
+        if s["telegram_id"] == exclude_id:
             continue
         try:
             await _main_bot.send_message(
@@ -69,13 +71,27 @@ async def _forward_to_suppliers(text: str) -> None:
             logger.warning("Userbot: could not forward to supplier %s: %s", s["telegram_id"], exc)
 
 
-async def _process_sale(text: str) -> None:
+def _resolve_supplier_id(sender_id: int | None) -> int:
+    """Return the supplier's telegram_id if sender is a registered active supplier, else SYSTEM_SUPPLIER_ID."""
+    if not sender_id:
+        return SYSTEM_SUPPLIER_ID
+    user = db.get_user(sender_id)
+    if user and user["role"] == "supplier" and user["is_approved"] and not user["is_blocked"]:
+        return sender_id
+    return SYSTEM_SUPPLIER_ID
+
+
+async def _process_sale(text: str, sender_id: int | None = None) -> None:
     parsed = parse_sale_message(text)
     if parsed is None:
         return
 
-    delivery = db.create_delivery(SYSTEM_SUPPLIER_ID, parsed.product_name, parsed.quantity_kub, parsed.car_number, parsed.sale_datetime)
-    logger.info("Userbot: created delivery id=%s product=%r kub=%s", delivery["id"], parsed.product_name, parsed.quantity_kub)
+    supplier_id = _resolve_supplier_id(sender_id)
+    delivery = db.create_delivery(supplier_id, parsed.product_name, parsed.quantity_kub, parsed.car_number, parsed.sale_datetime)
+    logger.info(
+        "Userbot: created delivery id=%s product=%r kub=%s supplier_id=%s",
+        delivery["id"], parsed.product_name, parsed.quantity_kub, supplier_id,
+    )
 
     company_members = db.find_buyer_company(parsed.client_name) if parsed.client_name else []
     if company_members:
@@ -116,10 +132,11 @@ async def run_userbot() -> None:
         text = message.text or message.caption or ""
         if not text:
             return
-        sender = message.from_user.username if message.from_user else "unknown"
-        logger.info("Userbot: from=%s text=%r", sender, text[:80])
-        await _forward_to_suppliers(text)
-        await _process_sale(text)
+        sender_id = message.from_user.id if message.from_user else None
+        sender_name = message.from_user.username if message.from_user else "unknown"
+        logger.info("Userbot: from=%s (id=%s) text=%r", sender_name, sender_id, text[:80])
+        await _forward_to_suppliers(text, exclude_id=sender_id)
+        await _process_sale(text, sender_id)
 
     try:
         await client.start()
