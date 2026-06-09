@@ -4,10 +4,20 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot.database import db
 from bot.keyboards.delivery import accept_reject_keyboard, buyer_weigh_keyboard
+from bot.keyboards.input_keyboards import (
+    CANCEL_BTN,
+    DATE_PRESETS,
+    MANUAL_DATE_BTN,
+    MANUAL_NUM_BTN,
+    date_range_keyboard,
+    manual_date_keyboard,
+    manual_number_keyboard,
+    tonnage_keyboard,
+)
 from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_DATE_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
 from bot.states import BuyerWeighDelivery, DateRangeReport
 from bot.utils.access import require_role
-from bot.utils.date_report import DATE_HINT, fmt, parse_date
+from bot.utils.date_report import DATE_HINT, fmt, parse_date, preset_to_range
 from bot.utils.export import deliveries_to_csv
 from bot.utils.formatting import format_date_report, format_delivery
 from bot.utils.reports import build_delivery_stats, format_delivery_stats
@@ -89,18 +99,52 @@ async def buyer_start_weigh(callback: CallbackQuery, state: FSMContext) -> None:
     delivery_id = int(callback.data.split(":")[1])
     await state.update_data(delivery_id=delivery_id)
     await state.set_state(BuyerWeighDelivery.entering_tonnage)
-    await callback.message.edit_text("⚖️ <b>Тарози натижасини тоннада киритинг</b>\n<i>Масалан: 23.8</i>", parse_mode="HTML")
+    await callback.message.edit_text("⚖️ <b>Тарози натижасини тоннада танланг ёки киритинг:</b>", parse_mode="HTML")
+    await callback.message.answer("Тоннани танланг:", reply_markup=tonnage_keyboard())
     await callback.answer()
 
 
 @router.message(BuyerWeighDelivery.entering_tonnage, F.text)
 async def buyer_enter_tonnage(message: Message, state: FSMContext) -> None:
-    try:
-        tonnage = float(message.text.replace(",", "."))
-    except ValueError:
-        await message.answer("Илтимос, рақам киритинг, масалан: 23.8")
+    text = message.text.strip()
+
+    if text == CANCEL_BTN:
+        await state.clear()
+        user = db.get_user(message.from_user.id)
+        await message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
         return
 
+    if text == MANUAL_NUM_BTN:
+        await state.set_state(BuyerWeighDelivery.entering_manual_tonnage)
+        await message.answer("Тоннани ёзинг (масалан: 23.8):", reply_markup=manual_number_keyboard())
+        return
+
+    try:
+        tonnage = float(text.replace(",", "."))
+    except ValueError:
+        await message.answer("Рақам танланг ёки ёзинг:", reply_markup=tonnage_keyboard())
+        return
+
+    await _finish_weighing(message, state, tonnage)
+
+
+@router.message(BuyerWeighDelivery.entering_manual_tonnage, F.text)
+async def buyer_enter_manual_tonnage(message: Message, state: FSMContext) -> None:
+    text = message.text.strip()
+    if text == CANCEL_BTN:
+        await state.clear()
+        user = db.get_user(message.from_user.id)
+        await message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+        return
+    try:
+        tonnage = float(text.replace(",", "."))
+    except ValueError:
+        await message.answer("Рақам киритинг (масалан: 23.8):", reply_markup=manual_number_keyboard())
+        return
+    await _finish_weighing(message, state, tonnage)
+
+
+async def _finish_weighing(message: Message, state: FSMContext, tonnage: float) -> None:
     data = await state.get_data()
     await state.clear()
 
@@ -112,16 +156,18 @@ async def buyer_enter_tonnage(message: Message, state: FSMContext) -> None:
     db.complete_delivery(delivery["id"], coefficient, buyer_kub, kub_difference)
 
     updated = db.get_delivery(delivery["id"])
+    user = db.get_user(message.from_user.id)
     await message.answer(
         f"✅ <b>Ҳисоб-китоб якунланди!</b>\n🔢 Коэффициент: <b>{coefficient}</b>\n\n" + format_delivery(updated),
         parse_mode="HTML",
+        reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
     )
 
     supplier = db.get_user(delivery["supplier_id"])
     if supplier and supplier["telegram_id"] != 0:
         await message.bot.send_message(
             supplier["telegram_id"],
-            "🏁 <b>Ҳисоб-китоб якунланди!</b>\nХаридор тарozi натижасини киритди:\n\n" + format_delivery(updated),
+            "🏁 <b>Ҳисоб-китоб якунланди!</b>\nХаридор тарози натижасини киритди:\n\n" + format_delivery(updated),
             parse_mode="HTML",
         )
 
@@ -208,31 +254,60 @@ async def company_report(message: Message) -> None:
 async def buyer_report_start(message: Message, state: FSMContext) -> None:
     await state.update_data(report_for="buyer")
     await state.set_state(DateRangeReport.entering_start_date)
-    await message.answer(f"📅 Бошланиш санасини киритинг ({DATE_HINT}):")
+    await message.answer("📊 <b>Давр танланг:</b>", reply_markup=date_range_keyboard(), parse_mode="HTML")
 
 
 @router.message(DateRangeReport.entering_start_date, F.text)
 async def report_enter_start(message: Message, state: FSMContext) -> None:
-    iso = parse_date(message.text)
+    text = message.text.strip()
+
+    if text == CANCEL_BTN:
+        await state.clear()
+        user = db.get_user(message.from_user.id)
+        await message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+        return
+
+    if text in DATE_PRESETS:
+        rng = preset_to_range(text)
+        if rng:
+            await state.clear()
+            await _send_buyer_report(message, rng[0], rng[1])
+        return
+
+    if text == MANUAL_DATE_BTN:
+        await message.answer(f"📅 Бошланиш санасини киритинг ({DATE_HINT}):", reply_markup=manual_date_keyboard())
+        return
+
+    iso = parse_date(text)
     if iso is None:
-        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:")
+        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг ёки давр танланг:", reply_markup=date_range_keyboard())
         return
     await state.update_data(date_from=iso)
     await state.set_state(DateRangeReport.entering_end_date)
-    await message.answer(f"📅 Тугаш санасини киритинг ({DATE_HINT}):")
+    await message.answer(f"📅 Тугаш санасини киритинг ({DATE_HINT}):", reply_markup=manual_date_keyboard())
 
 
 @router.message(DateRangeReport.entering_end_date, F.text)
 async def report_enter_end(message: Message, state: FSMContext) -> None:
-    iso = parse_date(message.text)
+    text = message.text.strip()
+
+    if text == CANCEL_BTN:
+        await state.clear()
+        user = db.get_user(message.from_user.id)
+        await message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+        return
+
+    iso = parse_date(text)
     if iso is None:
-        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:")
+        await message.answer(f"Нотўғри формат. {DATE_HINT.capitalize()} киритинг:", reply_markup=manual_date_keyboard())
         return
 
     data = await state.get_data()
     await state.clear()
-    date_from, date_to = data["date_from"], iso
+    await _send_buyer_report(message, data["date_from"], iso)
 
+
+async def _send_buyer_report(message: Message, date_from: str, date_to: str) -> None:
     user = db.get_user(message.from_user.id)
     if user["company_name"]:
         members = db.list_company_buyers(user["company_name"])
@@ -244,6 +319,7 @@ async def report_enter_end(message: Message, state: FSMContext) -> None:
     await message.answer(
         format_date_report(deliveries, fmt(date_from), fmt(date_to)),
         parse_mode="HTML",
+        reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
     )
 
 
