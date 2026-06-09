@@ -6,7 +6,7 @@ including those sent by other bots.
 
 import logging
 
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message as PyroMessage
 
 from bot.config import (
@@ -102,4 +102,4 @@ async def run_userbot() -> None:
 
     await client.start()
     logger.info("Userbot started — listening to group %s", SALES_GROUP_CHAT_ID)
-    await client.idle()
+    await idle()
