@@ -34,7 +34,10 @@ async def main() -> None:
         tasks.append(run_userbot())
         logger.info("Pyrogram userbot enabled")
 
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error("Task %d raised an exception: %s", i, result, exc_info=result)
 
 
 if __name__ == "__main__":

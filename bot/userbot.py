@@ -8,6 +8,7 @@ import html
 import logging
 
 from pyrogram import Client, filters, idle
+from pyrogram.errors import AuthKeyDuplicated
 from pyrogram.types import Message as PyroMessage
 
 from bot.config import (
@@ -120,6 +121,19 @@ async def run_userbot() -> None:
         await _forward_to_suppliers(text)
         await _process_sale(text)
 
-    await client.start()
-    logger.info("Userbot started — listening to group %s", SALES_GROUP_CHAT_ID)
-    await idle()
+    try:
+        await client.start()
+        logger.info("Userbot started — listening to group %s", SALES_GROUP_CHAT_ID)
+        await idle()
+    except AuthKeyDuplicated:
+        logger.error(
+            "Userbot: AUTH_KEY_DUPLICATED — old deploy is still running. "
+            "This instance will operate without userbot until the old one stops."
+        )
+    except Exception as exc:
+        logger.error("Userbot: unexpected error during startup: %s", exc, exc_info=True)
+    finally:
+        try:
+            await client.stop()
+        except Exception:
+            pass
