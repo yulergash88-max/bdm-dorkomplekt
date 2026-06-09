@@ -4,6 +4,7 @@ Uses a regular Telegram user account (not a bot) so it can read all messages,
 including those sent by other bots.
 """
 
+import html
 import logging
 
 from pyrogram import Client, filters, idle
@@ -49,6 +50,22 @@ def _make_client() -> Client:
         api_hash=PYROGRAM_API_HASH,
         phone_number=PYROGRAM_PHONE,
     )
+
+
+async def _forward_to_suppliers(text: str) -> None:
+    """Send every group message to all active suppliers regardless of whether it's parseable."""
+    suppliers = db.list_users_by_role("supplier")
+    for s in suppliers:
+        if s["telegram_id"] == 0 or not s["is_approved"] or s["is_blocked"]:
+            continue
+        try:
+            await _main_bot.send_message(
+                s["telegram_id"],
+                f"📨 <b>Гурухдан хабар:</b>\n\n{html.escape(text)}",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Userbot: could not forward to supplier %s: %s", s["telegram_id"], exc)
 
 
 async def _process_sale(text: str) -> None:
@@ -100,6 +117,7 @@ async def run_userbot() -> None:
             return
         sender = message.from_user.username if message.from_user else "unknown"
         logger.info("Userbot: from=%s text=%r", sender, text[:80])
+        await _forward_to_suppliers(text)
         await _process_sale(text)
 
     await client.start()
