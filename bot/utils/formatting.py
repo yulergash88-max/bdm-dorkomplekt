@@ -16,6 +16,8 @@ def format_delivery(delivery: dict) -> str:
         f"Ҳолат: {STATUS_LABELS.get(delivery['status'], delivery['status'])}",
         f"Етказиб берувчи куби: {delivery['supplier_kub']}",
     ]
+    if delivery.get("car_number"):
+        lines.append(f"Машина: {delivery['car_number']}")
 
     if delivery.get("buyer_tonnage") is not None:
         lines.append(f"Харидор тортган тонна: {delivery['buyer_tonnage']}")

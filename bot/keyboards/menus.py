@@ -24,6 +24,7 @@ ADMIN_TOGGLE_BUYER_ADMIN = "Харидор админи қилиш / олиб т
 BUYER_COMPANY_REPORT = "Компания ҳисоботи"
 
 ADMIN_COEFFICIENT = "Коэффициент созламаси ⚙️"
+ADMIN_PRODUCTS = "Махсулот коэффициентлари 📋"
 ADMIN_REPORT_DELIVERY_STATS = "Етказиб бериш статистикаси"
 ADMIN_REPORT_USER_ACTIVITY = "Фойдаланувчилар фаолияти"
 
@@ -58,6 +59,7 @@ def admin_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=ADMIN_ALL_DELIVERIES)],
             [KeyboardButton(text=ADMIN_USERS_SECTION)],
             [KeyboardButton(text=ADMIN_REPORTS_SECTION)],
+            [KeyboardButton(text=ADMIN_PRODUCTS)],
             [KeyboardButton(text=ADMIN_COEFFICIENT)],
         ],
         resize_keyboard=True,

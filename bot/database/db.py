@@ -153,7 +153,7 @@ def ensure_system_supplier(telegram_id: int, full_name: str) -> None:
 
 # --- deliveries -----------------------------------------------------------
 
-def create_delivery(supplier_id: int, product_name: str, supplier_kub: float) -> dict:
+def create_delivery(supplier_id: int, product_name: str, supplier_kub: float, car_number: str | None = None) -> dict:
     result = (
         supabase.table("deliveries")
         .insert(
@@ -161,6 +161,7 @@ def create_delivery(supplier_id: int, product_name: str, supplier_kub: float) ->
                 "supplier_id": supplier_id,
                 "product_name": product_name,
                 "supplier_kub": supplier_kub,
+                "car_number": car_number,
                 "status": "new",
             }
         )
@@ -253,6 +254,26 @@ def list_deliveries_by_status(status: str) -> list[dict]:
         .execute()
     )
     return result.data
+
+
+def complete_delivery_no_weigh(delivery_id: int) -> None:
+    supabase.table("deliveries").update({"status": "completed"}).eq("id", delivery_id).execute()
+
+
+def list_products() -> list[dict]:
+    result = supabase.table("products").select("*").order("name").execute()
+    return result.data
+
+
+def get_product_coefficient(product_name: str) -> float:
+    result = supabase.table("products").select("coefficient").ilike("name", product_name.strip()).execute()
+    if result.data:
+        return float(result.data[0]["coefficient"])
+    return 1.0
+
+
+def update_product_coefficient(product_name: str, coefficient: float) -> None:
+    supabase.table("products").update({"coefficient": coefficient}).ilike("name", product_name.strip()).execute()
 
 
 def list_all_deliveries() -> list[dict]:

@@ -17,6 +17,7 @@ from bot.keyboards.menus import (
     ADMIN_EDIT_USER,
     ADMIN_LIST_USERS,
     ADMIN_PENDING_USERS,
+    ADMIN_PRODUCTS,
     ADMIN_REPORT_DELIVERY_STATS,
     ADMIN_REPORT_USER_ACTIVITY,
     ADMIN_REPORTS_SECTION,
@@ -36,7 +37,7 @@ from bot.keyboards.users import (
     role_pick_keyboard,
     user_list_keyboard,
 )
-from bot.states import AdminAddUser, AdminEditUser, AdminSetCoefficient, WeighDelivery
+from bot.states import AdminAddUser, AdminEditUser, AdminSetCoefficient, AdminSetProductCoefficient, WeighDelivery
 from bot.utils.access import require_admin
 from bot.utils.export import deliveries_to_csv, users_to_csv
 from bot.utils.formatting import format_delivery, format_user
@@ -231,13 +232,9 @@ async def admin_enter_tonnage(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
 
-    coefficient_raw = db.get_setting("kub_coefficient")
-    try:
-        coefficient = float(coefficient_raw or "1.0")
-    except ValueError:
-        coefficient = 1.0
-
     delivery = db.get_delivery(data["delivery_id"])
+    coefficient = db.get_product_coefficient(delivery["product_name"])
+
     db.set_buyer_tonnage(delivery["id"], tonnage)
     buyer_kub = round(tonnage * coefficient, 3)
     kub_difference = round(buyer_kub - delivery["supplier_kub"], 3)
@@ -579,6 +576,101 @@ async def toggle_buyer_admin(callback: CallbackQuery) -> None:
     )
     await callback.answer()
     await notify_user(callback, telegram_id, notice)
+
+
+# --- no-weigh complete -------------------------------------------------------
+
+
+@router.callback_query(F.data.startswith("noweigh:"))
+async def complete_no_weigh(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer()
+        return
+
+    delivery_id = int(callback.data.split(":")[1])
+    delivery = db.get_delivery(delivery_id)
+    if delivery is None or delivery["status"] != "accepted":
+        await callback.answer("Бу етказиб бериш аллақачон ишланган.", show_alert=True)
+        return
+
+    db.complete_delivery_no_weigh(delivery_id)
+    updated = db.get_delivery(delivery_id)
+
+    await callback.message.edit_text("✅ Тарозисиз якунланди:\n\n" + format_delivery(updated))
+    await callback.answer()
+
+    buyer = db.get_user(delivery["buyer_id"]) if delivery["buyer_id"] else None
+    if buyer:
+        await callback.message.bot.send_message(
+            buyer["telegram_id"],
+            "Сизнинг қабул қилган етказиб беришингиз якунланди:\n\n" + format_delivery(updated),
+        )
+    supplier = db.get_user(delivery["supplier_id"])
+    if supplier and supplier["telegram_id"] != 0:
+        await callback.message.bot.send_message(
+            supplier["telegram_id"],
+            "Сизнинг етказиб беришингиз якунланди:\n\n" + format_delivery(updated),
+        )
+
+
+# --- product coefficient settings --------------------------------------------
+
+
+@router.message(F.text == ADMIN_PRODUCTS)
+async def list_product_coefficients(message: Message) -> None:
+    products = db.list_products()
+    if not products:
+        await message.answer("Махсулотлар топилмади.")
+        return
+
+    lines = ["📋 <b>Махсулот коэффициентлари:</b>\n"]
+    for i, p in enumerate(products, 1):
+        lines.append(f"{i}. {p['name']} — <b>{p['coefficient']}</b>")
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=p["name"], callback_data=f"edit_product_coef:{p['name']}")]
+            for p in products
+        ]
+    )
+    await message.answer("\n".join(lines) + "\n\nЎзгартириш учун махсулотни танланг:", parse_mode="HTML", reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("edit_product_coef:"))
+async def pick_product_for_coefficient(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer()
+        return
+
+    product_name = callback.data.split(":", 1)[1]
+    current = db.get_product_coefficient(product_name)
+    await state.update_data(product_name=product_name)
+    await state.set_state(AdminSetProductCoefficient.entering_value)
+    await callback.message.edit_text(
+        f"<b>{product_name}</b>\nЖорий коэффициент: <b>{current}</b>\n\nЯнги коэффициент киритинг:",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(AdminSetProductCoefficient.entering_value, F.text)
+async def save_product_coefficient(message: Message, state: FSMContext) -> None:
+    try:
+        value = float(message.text.replace(",", "."))
+        if value <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("Илтимос, мусбат рақам киритинг, масалан: 1.05")
+        return
+
+    data = await state.get_data()
+    db.update_product_coefficient(data["product_name"], value)
+    await state.clear()
+    await message.answer(
+        f"✅ <b>{data['product_name']}</b> коэффициенти сақланди: <b>{value}</b>",
+        parse_mode="HTML",
+        reply_markup=admin_menu(),
+    )
 
 
 # --- coefficient settings -----------------------------------------------------

@@ -28,7 +28,8 @@ def accept_reject_keyboard(delivery_id: int) -> InlineKeyboardMarkup:
 def weigh_delivery_keyboard(delivery_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Тарози киритиш ⚖️", callback_data=f"weigh:{delivery_id}")]
+            [InlineKeyboardButton(text="Тарози киритиш ⚖️", callback_data=f"weigh:{delivery_id}")],
+            [InlineKeyboardButton(text="Тарозисиз якунлаш ✅", callback_data=f"noweigh:{delivery_id}")],
         ]
     )
 

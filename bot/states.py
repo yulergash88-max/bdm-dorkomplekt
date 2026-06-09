@@ -28,3 +28,8 @@ class AdminAddUser(StatesGroup):
 
 class AdminEditUser(StatesGroup):
     entering_new_value = State()
+
+
+class AdminSetProductCoefficient(StatesGroup):
+    choosing_product = State()
+    entering_value = State()
