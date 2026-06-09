@@ -2,7 +2,6 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from bot.config import ADMIN_IDS
 from bot.database import db
 from bot.keyboards.input_keyboards import (
     CANCEL_BTN,
@@ -11,8 +10,8 @@ from bot.keyboards.input_keyboards import (
     date_range_keyboard,
     manual_date_keyboard,
 )
-from bot.keyboards.menus import SUPPLIER_DATE_REPORT, SUPPLIER_MY_DELIVERIES, SUPPLIER_NEW_DELIVERY, supplier_menu
-from bot.states import DateRangeReport, NewDelivery
+from bot.keyboards.menus import SUPPLIER_DATE_REPORT, SUPPLIER_MY_DELIVERIES, supplier_menu
+from bot.states import DateRangeReport
 from bot.utils.access import require_role
 from bot.utils.date_report import DATE_HINT, fmt, parse_date, preset_to_range
 from bot.utils.export import deliveries_to_csv_by_date
@@ -30,45 +29,6 @@ async def _try_delete(bot, chat_id: int, message_id: int) -> None:
     except Exception:
         pass
 
-
-@router.message(F.text == SUPPLIER_NEW_DELIVERY)
-async def start_new_delivery(message: Message, state: FSMContext) -> None:
-    await state.set_state(NewDelivery.entering_product_name)
-    await message.answer("Маҳсулот номини киритинг:")
-
-
-@router.message(NewDelivery.entering_product_name, F.text)
-async def enter_product_name(message: Message, state: FSMContext) -> None:
-    await state.update_data(product_name=message.text.strip())
-    await state.set_state(NewDelivery.entering_supplier_kub)
-    await message.answer("Маҳсулот ҳажмини (куб) киритинг, масалан: 24.5")
-
-
-@router.message(NewDelivery.entering_supplier_kub, F.text)
-async def enter_supplier_kub(message: Message, state: FSMContext) -> None:
-    try:
-        supplier_kub = float(message.text.replace(",", "."))
-    except ValueError:
-        await message.answer("Илтимос, рақам киритинг, масалан: 24.5")
-        return
-
-    data = await state.get_data()
-    delivery = db.create_delivery(message.from_user.id, data["product_name"], supplier_kub)
-    await state.clear()
-
-    await message.answer(
-        "✅ <b>Етказиб бериш яратилди!</b>\nАдмин харидорни тайинлайди.\n\n"
-        + format_delivery(delivery),
-        reply_markup=supplier_menu(),
-        parse_mode="HTML",
-    )
-
-    for admin_id in ADMIN_IDS:
-        await message.bot.send_message(
-            admin_id,
-            "🔔 <b>Янги етказиб бериш — харидор тайинланмаган</b>\n\n" + format_delivery(delivery),
-            parse_mode="HTML",
-        )
 
 
 @router.message(F.text == SUPPLIER_MY_DELIVERIES)

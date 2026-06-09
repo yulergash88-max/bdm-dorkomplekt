@@ -7,10 +7,6 @@ class Registration(StatesGroup):
     entering_company_name = State()
 
 
-class NewDelivery(StatesGroup):
-    entering_product_name = State()
-    entering_supplier_kub = State()
-
 
 class BuyerWeighDelivery(StatesGroup):
     using_numpad = State()

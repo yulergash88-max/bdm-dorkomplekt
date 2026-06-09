@@ -34,7 +34,6 @@ ADMIN_REPORT_USER_ACTIVITY = "Фойдаланувчилар фаолияти"
 def supplier_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=SUPPLIER_NEW_DELIVERY)],
             [KeyboardButton(text=SUPPLIER_MY_DELIVERIES)],
             [KeyboardButton(text=SUPPLIER_DATE_REPORT)],
         ],
