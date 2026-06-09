@@ -1,0 +1,144 @@
+from aiogram import F, Router
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+from bot.database import db
+from bot.keyboards.delivery import accept_reject_keyboard
+from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
+from bot.utils.access import require_role
+from bot.utils.export import deliveries_to_csv
+from bot.utils.formatting import format_delivery
+from bot.utils.reports import build_delivery_stats, format_delivery_stats
+
+router = Router(name="buyer")
+router.message.filter(require_role("buyer"))
+
+EXPORT_COMPANY_DELIVERIES_CSV = "export_company_deliveries_csv"
+
+
+def _company_export_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Excel/CSV юклаб олиш", callback_data=EXPORT_COMPANY_DELIVERIES_CSV)]
+        ]
+    )
+
+
+def _company_deliveries(user: dict, status: str | None = None) -> list[dict]:
+    """Returns deliveries visible to this buyer — company-wide if a company is set, else own only."""
+    if user["company_name"]:
+        return db.list_deliveries_by_company(user["company_name"], status=status)
+    return db.list_deliveries_by_buyer(user["telegram_id"], status=status)
+
+
+def _same_company(user: dict, delivery_buyer: dict | None) -> bool:
+    """Whether `user` may act on a delivery currently assigned to `delivery_buyer`."""
+    if user is None or delivery_buyer is None:
+        return False
+    if user["company_name"] and delivery_buyer["company_name"]:
+        return user["company_name"].strip().lower() == delivery_buyer["company_name"].strip().lower()
+    return user["telegram_id"] == delivery_buyer["telegram_id"]
+
+
+@router.message(F.text == BUYER_PENDING)
+async def pending_deliveries(message: Message) -> None:
+    user = db.get_user(message.from_user.id)
+    deliveries = _company_deliveries(user, status="sent_to_buyer")
+    if not deliveries:
+        await message.answer("Ҳозирча сизга юборилган янги етказиб беришлар йўқ.")
+        return
+
+    for delivery in deliveries:
+        await message.answer(
+            format_delivery(delivery),
+            reply_markup=accept_reject_keyboard(delivery["id"]),
+        )
+
+
+@router.callback_query(F.data.startswith("accept:"))
+async def accept_delivery(callback: CallbackQuery) -> None:
+    user = db.get_user(callback.from_user.id)
+    delivery_id = int(callback.data.split(":")[1])
+    delivery = db.get_delivery(delivery_id)
+    delivery_buyer = db.get_user(delivery["buyer_id"]) if delivery else None
+
+    if delivery is None or not _same_company(user, delivery_buyer):
+        await callback.answer("Топилмади.", show_alert=True)
+        return
+    if delivery["status"] != "sent_to_buyer":
+        await callback.answer("Бу етказиб бериш аллақачон қайта ишланган.", show_alert=True)
+        return
+
+    db.assign_buyer(delivery_id, callback.from_user.id)
+    db.accept_delivery(delivery_id)
+
+    await callback.message.edit_text(
+        callback.message.text + "\n\nҲолат: Қабул қилинди ✅"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("reject:"))
+async def reject_delivery(callback: CallbackQuery) -> None:
+    user = db.get_user(callback.from_user.id)
+    delivery_id = int(callback.data.split(":")[1])
+    delivery = db.get_delivery(delivery_id)
+    delivery_buyer = db.get_user(delivery["buyer_id"]) if delivery else None
+
+    if delivery is None or not _same_company(user, delivery_buyer):
+        await callback.answer("Топилмади.", show_alert=True)
+        return
+    if delivery["status"] != "sent_to_buyer":
+        await callback.answer("Бу етказиб бериш аллақачон қайта ишланган.", show_alert=True)
+        return
+
+    db.reject_delivery(delivery_id)
+    await callback.message.edit_text(callback.message.text + "\n\nҲолат: Рад этилди ❌")
+    await callback.answer()
+
+
+
+
+@router.message(F.text == BUYER_HISTORY)
+async def history(message: Message) -> None:
+    user = db.get_user(message.from_user.id)
+    deliveries = _company_deliveries(user)
+    completed = [d for d in deliveries if d["status"] in ("completed", "rejected")]
+    if not completed:
+        await message.answer("Тарихда ҳали ёзувлар йўқ.")
+        return
+
+    for delivery in completed[:20]:
+        await message.answer(format_delivery(delivery))
+
+
+# --- buyer-admin: company-wide report -----------------------------------------
+
+
+@router.message(F.text == BUYER_COMPANY_REPORT)
+async def company_report(message: Message) -> None:
+    user = db.get_user(message.from_user.id)
+    if not user["is_buyer_admin"]:
+        return
+
+    deliveries = _company_deliveries(user)
+    if not deliveries:
+        await message.answer("Компания учун етказиб беришлар йўқ.")
+        return
+
+    stats = build_delivery_stats(deliveries)
+    await message.answer(
+        format_delivery_stats(stats),
+        reply_markup=_company_export_keyboard(),
+    )
+
+
+@router.callback_query(F.data == EXPORT_COMPANY_DELIVERIES_CSV)
+async def export_company_deliveries(callback: CallbackQuery) -> None:
+    user = db.get_user(callback.from_user.id)
+    if user is None or not user["is_buyer_admin"]:
+        await callback.answer()
+        return
+
+    deliveries = _company_deliveries(user)
+    await callback.message.answer_document(deliveries_to_csv(deliveries))
+    await callback.answer()
