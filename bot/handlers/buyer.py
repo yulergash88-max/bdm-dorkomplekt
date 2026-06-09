@@ -82,7 +82,7 @@ async def accept_delivery(callback: CallbackQuery) -> None:
     user = db.get_user(callback.from_user.id)
     delivery_id = int(callback.data.split(":")[1])
     delivery = db.get_delivery(delivery_id)
-    delivery_buyer = db.get_user(delivery["buyer_id"]) if delivery else None
+    delivery_buyer = db.get_user(delivery["buyer_id"]) if delivery and delivery.get("buyer_id") else None
 
     if delivery is None or not _same_company(user, delivery_buyer):
         await callback.answer("Топилмади.", show_alert=True)
@@ -177,7 +177,12 @@ async def np_callback(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
 
-    # Digit / del / ok actions
+    # Digit / del / ok actions — only valid in using_numpad state
+    current_state = await state.get_state()
+    if current_state != BuyerWeighDelivery.using_numpad.state:
+        await callback.answer()
+        return
+
     data = await state.get_data()
     current = data.get("current_num", "")
 
@@ -204,7 +209,7 @@ async def np_callback(callback: CallbackQuery, state: FSMContext) -> None:
 
     if action == "del":
         current = current[:-1]
-    elif action == "." and "." not in current:
+    elif action == "." and "." not in current and current:
         current = current + "."
     elif action.isdigit() and len(current) < 8:
         current = current + action
@@ -215,6 +220,7 @@ async def np_callback(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _finish_weighing(callback: CallbackQuery, state: FSMContext, tonnage: float, delivery_id: int) -> None:
+    await callback.answer("✅ Якунланди!")
     await state.clear()
 
     delivery = db.get_delivery(delivery_id)
@@ -237,7 +243,6 @@ async def _finish_weighing(callback: CallbackQuery, state: FSMContext, tonnage: 
         parse_mode="HTML",
         reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
     )
-    await callback.answer("✅ Якунланди!")
 
     supplier = db.get_user(delivery["supplier_id"])
     if supplier and supplier["telegram_id"] != 0:
@@ -282,7 +287,7 @@ async def reject_delivery(callback: CallbackQuery) -> None:
     user = db.get_user(callback.from_user.id)
     delivery_id = int(callback.data.split(":")[1])
     delivery = db.get_delivery(delivery_id)
-    delivery_buyer = db.get_user(delivery["buyer_id"]) if delivery else None
+    delivery_buyer = db.get_user(delivery["buyer_id"]) if delivery and delivery.get("buyer_id") else None
 
     if delivery is None or not _same_company(user, delivery_buyer):
         await callback.answer("Топилмади.", show_alert=True)

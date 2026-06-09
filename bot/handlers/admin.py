@@ -21,6 +21,7 @@ from bot.keyboards.menus import (
     ADMIN_REPORT_USER_ACTIVITY,
     ADMIN_REPORTS_SECTION,
     ADMIN_TOGGLE_BUYER_ADMIN,
+    ADMIN_TOGGLE_WEIGHING,
     ADMIN_UNASSIGNED,
     ADMIN_USERS_SECTION,
     BACK_TO_ADMIN_MENU,
@@ -530,7 +531,7 @@ async def toggle_buyer_admin(callback: CallbackQuery) -> None:
 # --- requires_weighing toggle ------------------------------------------------
 
 
-@router.message(F.text == "⚖️ Тарози белгиси")
+@router.message(F.text == ADMIN_TOGGLE_WEIGHING)
 async def start_toggle_weighing(message: Message) -> None:
     users = db.list_users_by_role("buyer")
     if not users:

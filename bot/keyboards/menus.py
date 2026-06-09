@@ -19,6 +19,7 @@ ADMIN_EDIT_USER = "Фойдаланувчини таҳрирлаш"
 ADMIN_CHANGE_ROLE = "Ролни ўзгартириш"
 ADMIN_BLOCK_USER = "Блоклаш / блокдан чиқариш"
 ADMIN_TOGGLE_BUYER_ADMIN = "Харидор админи қилиш / олиб ташлаш"
+ADMIN_TOGGLE_WEIGHING = "⚖️ Тарози белгисини ўзгартириш"
 
 BUYER_COMPANY_REPORT = "Компания ҳисоботи"
 BUYER_DATE_REPORT = "📊 Ҳисобот (сана бўйича)"
@@ -77,6 +78,7 @@ def admin_users_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=ADMIN_CHANGE_ROLE)],
             [KeyboardButton(text=ADMIN_BLOCK_USER)],
             [KeyboardButton(text=ADMIN_TOGGLE_BUYER_ADMIN)],
+            [KeyboardButton(text=ADMIN_TOGGLE_WEIGHING)],
             [KeyboardButton(text=BACK_TO_ADMIN_MENU)],
         ],
         resize_keyboard=True,
