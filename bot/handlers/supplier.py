@@ -1,6 +1,6 @@
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.config import ADMIN_IDS
 from bot.database import db
@@ -15,6 +15,7 @@ from bot.keyboards.menus import SUPPLIER_DATE_REPORT, SUPPLIER_MY_DELIVERIES, SU
 from bot.states import DateRangeReport, NewDelivery
 from bot.utils.access import require_role
 from bot.utils.date_report import DATE_HINT, fmt, parse_date, preset_to_range
+from bot.utils.export import deliveries_to_csv_by_date
 from bot.utils.formatting import STATUS_LABELS, format_date_report, format_delivery
 
 router = Router(name="supplier")
@@ -132,5 +133,19 @@ async def _send_supplier_report(message: Message, date_from: str, date_to: str) 
     await message.answer(
         format_date_report(deliveries, fmt(date_from), fmt(date_to)),
         parse_mode="HTML",
-        reply_markup=supplier_menu(),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📥 Excel юклаб олиш", callback_data=f"excel_supplier:{date_from}:{date_to}:{message.from_user.id}")
+        ]]),
     )
+    await message.answer("Менюга қайтдингиз.", reply_markup=supplier_menu())
+
+
+@router.callback_query(F.data.startswith("excel_supplier:"))
+async def export_supplier_excel(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    date_from, date_to, supplier_id = parts[1], parts[2], int(parts[3])
+    deliveries = db.list_deliveries_in_range(supplier_id, None, date_from, date_to)
+    await callback.message.answer_document(
+        deliveries_to_csv_by_date(deliveries, fmt(date_from), fmt(date_to))
+    )
+    await callback.answer()

@@ -18,7 +18,7 @@ from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_DATE_REPORT, BUYER_H
 from bot.states import BuyerWeighDelivery, DateRangeReport
 from bot.utils.access import require_role
 from bot.utils.date_report import DATE_HINT, fmt, parse_date, preset_to_range
-from bot.utils.export import deliveries_to_csv
+from bot.utils.export import deliveries_to_csv, deliveries_to_csv_by_date
 from bot.utils.formatting import format_date_report, format_delivery
 from bot.utils.reports import build_delivery_stats, format_delivery_stats
 
@@ -307,6 +307,15 @@ async def report_enter_end(message: Message, state: FSMContext) -> None:
     await _send_buyer_report(message, data["date_from"], iso)
 
 
+def _excel_keyboard(role: str, date_from: str, date_to: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(
+            text="📥 Excel юклаб олиш",
+            callback_data=f"excel_{role}:{date_from}:{date_to}",
+        )]]
+    )
+
+
 async def _send_buyer_report(message: Message, date_from: str, date_to: str) -> None:
     user = db.get_user(message.from_user.id)
     if user["company_name"]:
@@ -315,12 +324,34 @@ async def _send_buyer_report(message: Message, date_from: str, date_to: str) -> 
     else:
         buyer_ids = [message.from_user.id]
 
+    if not buyer_ids:
+        buyer_ids = [message.from_user.id]
+
     deliveries = db.list_deliveries_in_range(None, buyer_ids, date_from, date_to)
     await message.answer(
         format_date_report(deliveries, fmt(date_from), fmt(date_to)),
         parse_mode="HTML",
-        reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
+        reply_markup=_excel_keyboard("buyer", date_from, date_to),
     )
+    await message.answer("Менюга қайтдингиз.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+
+
+@router.callback_query(F.data.startswith("excel_buyer:"))
+async def export_buyer_excel(callback: CallbackQuery) -> None:
+    _, date_from, date_to = callback.data.split(":")
+    user = db.get_user(callback.from_user.id)
+    if user["company_name"]:
+        members = db.list_company_buyers(user["company_name"])
+        buyer_ids = [m["telegram_id"] for m in members]
+    else:
+        buyer_ids = [callback.from_user.id]
+    if not buyer_ids:
+        buyer_ids = [callback.from_user.id]
+    deliveries = db.list_deliveries_in_range(None, buyer_ids, date_from, date_to)
+    await callback.message.answer_document(
+        deliveries_to_csv_by_date(deliveries, fmt(date_from), fmt(date_to))
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == EXPORT_COMPANY_DELIVERIES_CSV)
