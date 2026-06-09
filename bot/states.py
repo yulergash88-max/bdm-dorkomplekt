@@ -24,6 +24,7 @@ class AdminSetCoefficient(StatesGroup):
 class AdminAddUser(StatesGroup):
     choosing_role = State()
     entering_company_name = State()
+    choosing_weighing = State()
     entering_phone = State()
 
 

@@ -75,6 +75,8 @@ def format_user(user: dict) -> str:
     ]
     if user["role"] == "buyer":
         lines.append(f"🏢 Компания: <b>{user.get('company_name') or '—'}</b>")
+        weighing = user.get("requires_weighing", True)
+        lines.append(f"⚖️ Қабул тури: <b>{'Тарози билан' if weighing else 'Юборилган ҳажм билан'}</b>")
 
     lines += [
         f"📱 Телефон: <b>{user['phone'] or '—'}</b>",

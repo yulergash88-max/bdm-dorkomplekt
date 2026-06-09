@@ -59,3 +59,21 @@ def add_user_role_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=ROLE_LABELS["buyer"], callback_data="add_user_role:buyer")],
         ]
     )
+
+
+def weighing_type_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⚖️ Тарози билан қабул қилади", callback_data="set_weighing:yes")],
+            [InlineKeyboardButton(text="📐 Юборилган ҳажм билан (тарозисиз)", callback_data="set_weighing:no")],
+        ]
+    )
+
+
+def weighing_toggle_keyboard(telegram_id: int, requires_weighing: bool) -> InlineKeyboardMarkup:
+    label = "📐 Тарозисиз режимга ўтказиш" if requires_weighing else "⚖️ Тарози режимга ўтказиш"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=f"toggle_weighing:{telegram_id}")]
+        ]
+    )

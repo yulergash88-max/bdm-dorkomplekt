@@ -96,11 +96,28 @@ async def accept_delivery(callback: CallbackQuery) -> None:
 
     await callback.answer("Қабул қилинди ✅")
     await callback.message.delete()
-    await callback.message.answer(
-        "⚖️ <b>Тарози натижасини киритасизми?</b>",
-        reply_markup=buyer_weigh_keyboard(delivery_id),
-        parse_mode="HTML",
-    )
+
+    if user.get("requires_weighing", True):
+        await callback.message.answer(
+            "⚖️ <b>Тарози натижасини киритасизми?</b>",
+            reply_markup=buyer_weigh_keyboard(delivery_id),
+            parse_mode="HTML",
+        )
+    else:
+        db.complete_delivery_no_weigh(delivery_id)
+        updated = db.get_delivery(delivery_id)
+        await callback.message.answer(
+            "✅ <b>Тарозисиз якунланди</b>\n\n" + format_delivery(updated),
+            parse_mode="HTML",
+            reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
+        )
+        supplier_user = db.get_user(delivery["supplier_id"])
+        if supplier_user and supplier_user["telegram_id"] != 0:
+            await callback.message.bot.send_message(
+                supplier_user["telegram_id"],
+                "✅ <b>Харидор тарозисиз қабул қилди:</b>\n\n" + format_delivery(updated),
+                parse_mode="HTML",
+            )
 
 
 @router.callback_query(F.data.startswith("buyer_weigh:"))

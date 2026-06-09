@@ -35,6 +35,8 @@ from bot.keyboards.users import (
     edit_field_keyboard,
     role_pick_keyboard,
     user_list_keyboard,
+    weighing_toggle_keyboard,
+    weighing_type_keyboard,
 )
 from bot.states import AdminAddUser, AdminEditUser, AdminSetCoefficient, AdminSetProductCoefficient
 from bot.utils.access import require_admin
@@ -217,29 +219,46 @@ async def add_user_choose_role(callback: CallbackQuery, state: FSMContext) -> No
 @router.message(AdminAddUser.entering_company_name, F.text)
 async def add_user_enter_company_name(message: Message, state: FSMContext) -> None:
     await state.update_data(company_name=message.text.strip())
+    await state.set_state(AdminAddUser.choosing_weighing)
+    await message.answer(
+        "Бу харидор қандай қабул қилади?",
+        reply_markup=weighing_type_keyboard(),
+    )
+
+
+@router.callback_query(AdminAddUser.choosing_weighing, F.data.startswith("set_weighing:"))
+async def add_user_choose_weighing(callback: CallbackQuery, state: FSMContext) -> None:
+    requires_weighing = callback.data.split(":")[1] == "yes"
+    await state.update_data(requires_weighing=requires_weighing)
+    label = "⚖️ Тарози билан" if requires_weighing else "📐 Юборилган ҳажм билан"
+    await callback.message.edit_text(f"Қабул тури: {label}")
+    await callback.answer()
     await state.set_state(AdminAddUser.entering_phone)
-    await message.answer("Фойдаланувчининг телефон рақамини киритинг:")
+    await callback.message.answer("Фойдаланувчининг телефон рақамини киритинг:")
 
 
 @router.message(AdminAddUser.entering_phone, F.text)
 async def add_user_enter_phone(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     phone = message.text.strip()
+    requires_weighing = data.get("requires_weighing", True)
 
-    invite = db.create_pending_invite(phone, data["role"], data.get("company_name"))
+    invite = db.create_pending_invite(phone, data["role"], data.get("company_name"), requires_weighing)
     await state.clear()
 
+    weighing_label = "⚖️ Тарози билан" if requires_weighing else "📐 Юборилган ҳажм билан"
     lines = [
         "Таклифнома сақланди ✅",
         f"Роли: {ROLE_LABELS[invite['role']]}",
     ]
     if invite.get("company_name"):
         lines.append(f"Компания: {invite['company_name']}")
-    lines.append(f"Телефон: {invite['phone']}")
-    lines.append(
+    lines += [
+        f"Қабул тури: {weighing_label}",
+        f"Телефон: {invite['phone']}",
         "\nФойдаланувчи биринчи марта /start берганда ва шу телефон рақамини юборганда — "
-        "исми Telegram акаунтидан автоматик олиниб, ҳисоб фаоллашади."
-    )
+        "исми Telegram акаунтидан автоматик олиниб, ҳисоб фаоллашади.",
+    ]
 
     await message.answer("\n".join(lines), reply_markup=admin_users_menu())
 
@@ -505,6 +524,71 @@ async def toggle_buyer_admin(callback: CallbackQuery) -> None:
         parse_mode="HTML",
     )
     await callback.answer()
+    await notify_user(callback, telegram_id, notice)
+
+
+# --- requires_weighing toggle ------------------------------------------------
+
+
+@router.message(F.text == "⚖️ Тарози белгиси")
+async def start_toggle_weighing(message: Message) -> None:
+    users = db.list_users_by_role("buyer")
+    if not users:
+        await message.answer("Харидорлар йўқ.")
+        return
+    await message.answer(
+        "Фойдаланувчини танланг:",
+        reply_markup=user_list_keyboard(users, "view_weighing"),
+    )
+
+
+@router.callback_query(F.data.startswith("view_weighing:"))
+async def view_weighing_status(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer()
+        return
+
+    telegram_id = int(callback.data.split(":")[1])
+    user = db.get_user(telegram_id)
+    if user is None:
+        await callback.answer("Топилмади.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        format_user(user),
+        reply_markup=weighing_toggle_keyboard(telegram_id, user.get("requires_weighing", True)),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("toggle_weighing:"))
+async def toggle_weighing(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer()
+        return
+
+    telegram_id = int(callback.data.split(":")[1])
+    user = db.get_user(telegram_id)
+    if user is None:
+        await callback.answer("Топилмади.", show_alert=True)
+        return
+
+    new_val = not user.get("requires_weighing", True)
+    db.update_user(telegram_id, requires_weighing=new_val)
+    updated = db.get_user(telegram_id)
+
+    label = "⚖️ Тарози билан" if new_val else "📐 Юборилган ҳажм билан"
+    await callback.message.edit_text(
+        format_user(updated),
+        reply_markup=weighing_toggle_keyboard(telegram_id, new_val),
+        parse_mode="HTML",
+    )
+    await callback.answer(f"✅ {label}")
+    notice = (
+        "Сиз энди тарози билан қабул қиласиз." if new_val
+        else "Сиз энди юборилган ҳажм билан қабул қиласиз (тарозисиз)."
+    )
     await notify_user(callback, telegram_id, notice)
 
 

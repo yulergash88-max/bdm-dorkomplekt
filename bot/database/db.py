@@ -64,7 +64,8 @@ def list_all_users() -> list[dict]:
 
 
 def create_user_by_admin(
-    telegram_id: int, full_name: str, phone: str, role: str, company_name: str | None = None
+    telegram_id: int, full_name: str, phone: str, role: str,
+    company_name: str | None = None, requires_weighing: bool = True,
 ) -> dict:
     """Admin-added users are pre-approved — the admin is vouching for them directly."""
     result = (
@@ -77,6 +78,7 @@ def create_user_by_admin(
                 "role": role,
                 "company_name": company_name,
                 "is_approved": True,
+                "requires_weighing": requires_weighing,
             }
         )
         .execute()
@@ -84,7 +86,7 @@ def create_user_by_admin(
     return result.data[0]
 
 
-def create_pending_invite(phone: str, role: str, company_name: str | None = None) -> dict:
+def create_pending_invite(phone: str, role: str, company_name: str | None = None, requires_weighing: bool = True) -> dict:
     """Holds an admin-added user without a known Telegram ID until they claim it via /start."""
     result = (
         supabase.table("pending_invites")
@@ -95,6 +97,7 @@ def create_pending_invite(phone: str, role: str, company_name: str | None = None
                 "full_name": None,
                 "role": role,
                 "company_name": company_name,
+                "requires_weighing": requires_weighing,
             }
         )
         .execute()
@@ -115,7 +118,8 @@ def find_pending_invite(phone: str) -> dict | None:
 def claim_pending_invite(invite: dict, telegram_id: int, phone: str, tg_full_name: str) -> dict:
     """Turns a pending invite into a real (pre-approved) user once its phone is confirmed via /start."""
     user = create_user_by_admin(
-        telegram_id, tg_full_name, phone, invite["role"], invite.get("company_name")
+        telegram_id, tg_full_name, phone, invite["role"],
+        invite.get("company_name"), invite.get("requires_weighing", True),
     )
     supabase.table("pending_invites").delete().eq("id", invite["id"]).execute()
     return user
