@@ -8,11 +8,10 @@ from bot.keyboards.input_keyboards import (
     CANCEL_BTN,
     DATE_PRESETS,
     MANUAL_DATE_BTN,
-    MANUAL_NUM_BTN,
+    confirm_tonnage_keyboard,
     date_range_keyboard,
     manual_date_keyboard,
-    manual_number_keyboard,
-    tonnage_keyboard,
+    numpad_keyboard,
 )
 from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_DATE_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
 from bot.states import BuyerWeighDelivery, DateRangeReport
@@ -107,58 +106,101 @@ async def accept_delivery(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("buyer_weigh:"))
 async def buyer_start_weigh(callback: CallbackQuery, state: FSMContext) -> None:
     delivery_id = int(callback.data.split(":")[1])
-    await state.update_data(delivery_id=delivery_id)
-    await state.set_state(BuyerWeighDelivery.entering_tonnage)
-    await callback.message.edit_text("⚖️ <b>Тарози натижасини тоннада танланг ёки киритинг:</b>", parse_mode="HTML")
-    await callback.message.answer("Тоннани танланг:", reply_markup=tonnage_keyboard())
+    await state.set_state(BuyerWeighDelivery.using_numpad)
+    await state.update_data(delivery_id=delivery_id, current_num="")
+    await callback.message.edit_text(
+        "⚖️ <b>Тарози натижасини киритинг (тонна):</b>",
+        reply_markup=numpad_keyboard("", delivery_id),
+        parse_mode="HTML",
+    )
     await callback.answer()
 
 
-@router.message(BuyerWeighDelivery.entering_tonnage, F.text)
-async def buyer_enter_tonnage(message: Message, state: FSMContext) -> None:
-    text = message.text.strip()
+@router.callback_query(F.data == "np_noop")
+async def np_noop(callback: CallbackQuery) -> None:
+    await callback.answer()
 
-    if text == CANCEL_BTN:
+
+@router.callback_query(F.data.startswith("np:"))
+async def np_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    parts = callback.data.split(":", 2)
+    delivery_id = int(parts[1])
+    action = parts[2]
+
+    if action == "cancel":
         await state.clear()
-        user = db.get_user(message.from_user.id)
-        await message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+        user = db.get_user(callback.from_user.id)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+        await callback.answer()
         return
 
-    if text == MANUAL_NUM_BTN:
-        await state.set_state(BuyerWeighDelivery.entering_manual_tonnage)
-        await message.answer("Тоннани ёзинг (масалан: 23.8):", reply_markup=manual_number_keyboard())
+    if action == "confirm":
+        data = await state.get_data()
+        try:
+            tonnage = float(data.get("confirming_tonnage_val", ""))
+        except ValueError:
+            await callback.answer("Хато рақам!", show_alert=True)
+            return
+        await _finish_weighing(callback, state, tonnage, delivery_id)
         return
 
-    try:
-        tonnage = float(text.replace(",", "."))
-    except ValueError:
-        await message.answer("Рақам танланг ёки ёзинг:", reply_markup=tonnage_keyboard())
+    if action == "redo":
+        data = await state.get_data()
+        current_num = data.get("current_num", "")
+        await state.set_state(BuyerWeighDelivery.using_numpad)
+        await callback.message.edit_text(
+            "⚖️ <b>Тарози натижасини киритинг (тонна):</b>",
+            reply_markup=numpad_keyboard(current_num, delivery_id),
+            parse_mode="HTML",
+        )
+        await callback.answer()
         return
 
-    await _finish_weighing(message, state, tonnage)
-
-
-@router.message(BuyerWeighDelivery.entering_manual_tonnage, F.text)
-async def buyer_enter_manual_tonnage(message: Message, state: FSMContext) -> None:
-    text = message.text.strip()
-    if text == CANCEL_BTN:
-        await state.clear()
-        user = db.get_user(message.from_user.id)
-        await message.answer("Бекор қилинди.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
-        return
-    try:
-        tonnage = float(text.replace(",", "."))
-    except ValueError:
-        await message.answer("Рақам киритинг (масалан: 23.8):", reply_markup=manual_number_keyboard())
-        return
-    await _finish_weighing(message, state, tonnage)
-
-
-async def _finish_weighing(message: Message, state: FSMContext, tonnage: float) -> None:
+    # Digit / del / ok actions
     data = await state.get_data()
+    current = data.get("current_num", "")
+
+    if action == "ok":
+        if not current:
+            await callback.answer("Аввал рақам киритинг!", show_alert=True)
+            return
+        try:
+            tonnage = float(current)
+            if tonnage <= 0:
+                raise ValueError
+        except ValueError:
+            await callback.answer("Нотўғри рақам!", show_alert=True)
+            return
+        await state.update_data(confirming_tonnage_val=current)
+        await state.set_state(BuyerWeighDelivery.confirming_tonnage)
+        await callback.message.edit_text(
+            f"⚖️ <b>Тасдиқлаш:</b>\n\nКиритилган тонна: <b>{current} т</b>\nТўғрими?",
+            reply_markup=confirm_tonnage_keyboard(current, delivery_id),
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    if action == "del":
+        current = current[:-1]
+    elif action == "." and "." not in current:
+        current = current + "."
+    elif action.isdigit() and len(current) < 8:
+        current = current + action
+
+    await state.update_data(current_num=current)
+    await callback.message.edit_reply_markup(reply_markup=numpad_keyboard(current, delivery_id))
+    await callback.answer()
+
+
+async def _finish_weighing(callback: CallbackQuery, state: FSMContext, tonnage: float, delivery_id: int) -> None:
     await state.clear()
 
-    delivery = db.get_delivery(data["delivery_id"])
+    delivery = db.get_delivery(delivery_id)
     coefficient = db.get_product_coefficient(delivery["product_name"])
     db.set_buyer_tonnage(delivery["id"], tonnage)
     buyer_kub = round(tonnage * coefficient, 3)
@@ -166,16 +208,23 @@ async def _finish_weighing(message: Message, state: FSMContext, tonnage: float) 
     db.complete_delivery(delivery["id"], coefficient, buyer_kub, kub_difference)
 
     updated = db.get_delivery(delivery["id"])
-    user = db.get_user(message.from_user.id)
-    await message.answer(
+    user = db.get_user(callback.from_user.id)
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await callback.message.answer(
         f"✅ <b>Ҳисоб-китоб якунланди!</b>\n🔢 Коэффициент: <b>{coefficient}</b>\n\n" + format_delivery(updated),
         parse_mode="HTML",
         reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
     )
+    await callback.answer("✅ Якунланди!")
 
     supplier = db.get_user(delivery["supplier_id"])
     if supplier and supplier["telegram_id"] != 0:
-        await message.bot.send_message(
+        await callback.message.bot.send_message(
             supplier["telegram_id"],
             "🏁 <b>Ҳисоб-китоб якунланди!</b>\nХаридор тарози натижасини киритди:\n\n" + format_delivery(updated),
             parse_mode="HTML",

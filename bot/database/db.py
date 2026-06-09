@@ -153,7 +153,7 @@ def ensure_system_supplier(telegram_id: int, full_name: str) -> None:
 
 # --- deliveries -----------------------------------------------------------
 
-def create_delivery(supplier_id: int, product_name: str, supplier_kub: float, car_number: str | None = None) -> dict:
+def create_delivery(supplier_id: int, product_name: str, supplier_kub: float, car_number: str | None = None, sale_datetime: str | None = None) -> dict:
     result = (
         supabase.table("deliveries")
         .insert(
@@ -162,6 +162,7 @@ def create_delivery(supplier_id: int, product_name: str, supplier_kub: float, ca
                 "product_name": product_name,
                 "supplier_kub": supplier_kub,
                 "car_number": car_number,
+                "sale_datetime": sale_datetime,
                 "status": "new",
             }
         )

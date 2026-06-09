@@ -32,6 +32,8 @@ def format_delivery(delivery: dict) -> str:
         f"{icon} Ҳолат: <b>{label}</b>",
     ]
 
+    if delivery.get("sale_datetime"):
+        lines.append(f"🕐 Сана: <b>{delivery['sale_datetime']}</b>")
     if delivery.get("car_number"):
         lines.append(f"🚛 Машина: <b>{delivery['car_number']}</b>")
 

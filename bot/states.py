@@ -13,8 +13,8 @@ class NewDelivery(StatesGroup):
 
 
 class BuyerWeighDelivery(StatesGroup):
-    entering_tonnage = State()
-    entering_manual_tonnage = State()
+    using_numpad = State()
+    confirming_tonnage = State()
 
 
 class AdminSetCoefficient(StatesGroup):

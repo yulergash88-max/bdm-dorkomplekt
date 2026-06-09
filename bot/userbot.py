@@ -56,7 +56,7 @@ async def _process_sale(text: str) -> None:
     if parsed is None:
         return
 
-    delivery = db.create_delivery(SYSTEM_SUPPLIER_ID, parsed.product_name, parsed.quantity_kub, parsed.car_number)
+    delivery = db.create_delivery(SYSTEM_SUPPLIER_ID, parsed.product_name, parsed.quantity_kub, parsed.car_number, parsed.sale_datetime)
     logger.info("Userbot: created delivery id=%s product=%r kub=%s", delivery["id"], parsed.product_name, parsed.quantity_kub)
 
     company_members = db.find_buyer_company(parsed.client_name) if parsed.client_name else []

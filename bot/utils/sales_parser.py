@@ -5,6 +5,7 @@ _TYPE_SAVDO_RE = re.compile(r"Тип:\s*Савдо", re.IGNORECASE)
 _CLIENT_RE = re.compile(r"Мижоз:\s*(.+)", re.IGNORECASE)
 _QUANTITY_RE = re.compile(r"Кол-во:\s*([\d\s.,]+?)\s*м3", re.IGNORECASE)
 _CAR_RE = re.compile(r"(?:Машина[а-яёА-ЯЁ]*|Транспорт):\s*(.+)", re.IGNORECASE)
+_DATETIME_RE = re.compile(r"(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}:\d{2})")
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class ParsedSale:
     quantity_kub: float
     client_name: str | None
     car_number: str | None
+    sale_datetime: str | None
 
 
 def parse_sale_message(text: str) -> ParsedSale | None:
@@ -48,4 +50,7 @@ def parse_sale_message(text: str) -> ParsedSale | None:
     car_match = _CAR_RE.search(text)
     car_number = car_match.group(1).strip() if car_match else None
 
-    return ParsedSale(product_name=product_name, quantity_kub=quantity, client_name=client_name, car_number=car_number)
+    dt_match = _DATETIME_RE.search(text)
+    sale_datetime = dt_match.group(1).strip() if dt_match else None
+
+    return ParsedSale(product_name=product_name, quantity_kub=quantity, client_name=client_name, car_number=car_number, sale_datetime=sale_datetime)
