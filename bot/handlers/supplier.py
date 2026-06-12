@@ -48,7 +48,7 @@ async def my_deliveries(message: Message) -> None:
         await message.answer("Сизда ҳали етказиб беришлар йўқ.")
         return
     for delivery in deliveries[:20]:
-        await message.answer(format_delivery(delivery), parse_mode="HTML")
+        await message.answer(format_delivery(delivery, show_money=True), parse_mode="HTML")
 
 
 @router.message(F.text == SUPPLIER_DATE_REPORT)

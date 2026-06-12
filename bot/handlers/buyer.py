@@ -13,12 +13,25 @@ from bot.keyboards.input_keyboards import (
     manual_date_keyboard,
     numpad_keyboard,
 )
-from bot.keyboards.menus import BUYER_COMPANY_REPORT, BUYER_DATE_REPORT, BUYER_HISTORY, BUYER_PENDING, buyer_menu
-from bot.states import BuyerWeighDelivery, DateRangeReport
+from bot.keyboards.menus import (
+    BUYER_ADD_EMPLOYEE,
+    BUYER_ADD_OBJECT,
+    BUYER_BACK_TO_MENU,
+    BUYER_BALANCE,
+    BUYER_COMPANY_REPORT,
+    BUYER_DATE_REPORT,
+    BUYER_HISTORY,
+    BUYER_LIST_OBJECTS,
+    BUYER_MANAGE,
+    BUYER_PENDING,
+    buyer_manage_menu,
+    buyer_menu,
+)
+from bot.states import BuyerAddEmployee, BuyerAddObject, BuyerWeighDelivery, DateRangeReport
 from bot.utils.access import require_role
 from bot.utils.date_report import DATE_HINT, fmt, parse_date, preset_to_range
 from bot.utils.export import deliveries_to_csv, deliveries_to_csv_by_date
-from bot.utils.formatting import format_date_report, format_delivery
+from bot.utils.formatting import fmt_money, format_date_report, format_delivery
 from bot.utils.reports import build_delivery_stats, format_delivery_stats
 
 router = Router(name="buyer")
@@ -69,9 +82,10 @@ async def pending_deliveries(message: Message) -> None:
         await message.answer("Ҳозирча сизга юборилган янги етказиб беришлар йўқ.")
         return
 
+    show_money = user.get("is_buyer_admin", False)
     for delivery in deliveries:
         await message.answer(
-            format_delivery(delivery),
+            format_delivery(delivery, show_money=show_money),
             reply_markup=accept_reject_keyboard(delivery["id"]),
             parse_mode="HTML",
         )
@@ -93,9 +107,13 @@ async def accept_delivery(callback: CallbackQuery) -> None:
 
     db.assign_buyer(delivery_id, callback.from_user.id)
     db.accept_delivery(delivery_id)
+    db.set_delivery_object(delivery_id, user.get("object_name"))
 
     await callback.answer("Қабул қилинди ✅")
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.message.answer(
         f"⚖️ <b>{delivery['product_name']}</b>\n\nБу маҳсулотни тарозига тортасизми ёки етказиб берувчи куби билан қабул қиласизми?",
         reply_markup=buyer_weigh_keyboard(delivery_id),
@@ -222,7 +240,8 @@ async def _finish_weighing(callback: CallbackQuery, state: FSMContext, tonnage: 
         pass
 
     await callback.message.answer(
-        f"✅ <b>Ҳисоб-китоб якунланди!</b>\n🔢 Коэффициент: <b>{coefficient}</b>\n\n" + format_delivery(updated),
+        f"✅ <b>Ҳисоб-китоб якунланди!</b>\n🔢 Коэффициент: <b>{coefficient}</b>\n\n"
+        + format_delivery(updated, show_money=user.get("is_buyer_admin", False)),
         parse_mode="HTML",
         reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
     )
@@ -231,7 +250,8 @@ async def _finish_weighing(callback: CallbackQuery, state: FSMContext, tonnage: 
     if supplier and supplier["telegram_id"] != 0:
         await callback.message.bot.send_message(
             supplier["telegram_id"],
-            "🏁 <b>Ҳисоб-китоб якунланди!</b>\nХаридор тарози натижасини киритди:\n\n" + format_delivery(updated),
+            "🏁 <b>Ҳисоб-китоб якунланди!</b>\nХаридор тарози натижасини киритди:\n\n"
+            + format_delivery(updated, show_money=True),
             parse_mode="HTML",
         )
 
@@ -248,10 +268,14 @@ async def buyer_no_weigh(callback: CallbackQuery) -> None:
     updated = db.get_delivery(delivery_id)
 
     await callback.answer("Якунланди ✅")
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     user = db.get_user(callback.from_user.id)
     await callback.message.answer(
-        "✅ <b>Тарозисиз якунланди</b>\n\n" + format_delivery(updated),
+        "✅ <b>Тарозисиз якунланди</b>\n\n"
+        + format_delivery(updated, show_money=user.get("is_buyer_admin", False)),
         parse_mode="HTML",
         reply_markup=buyer_menu(user.get("is_buyer_admin", False)),
     )
@@ -260,7 +284,8 @@ async def buyer_no_weigh(callback: CallbackQuery) -> None:
     if supplier and supplier["telegram_id"] != 0:
         await callback.message.bot.send_message(
             supplier["telegram_id"],
-            "✅ <b>Харидор тарозисиз қабул қилди:</b>\n\n" + format_delivery(updated),
+            "✅ <b>Харидор тарозисиз қабул қилди:</b>\n\n"
+            + format_delivery(updated, show_money=True),
             parse_mode="HTML",
         )
 
@@ -281,7 +306,10 @@ async def reject_delivery(callback: CallbackQuery) -> None:
 
     db.reject_delivery(delivery_id)
     await callback.answer("Рад этилди ❌")
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
 
 
 
@@ -295,8 +323,50 @@ async def history(message: Message) -> None:
         await message.answer("Тарихда ҳали ёзувлар йўқ.")
         return
 
+    show_money = user.get("is_buyer_admin", False)
     for delivery in completed[:20]:
-        await message.answer(format_delivery(delivery), parse_mode="HTML")
+        await message.answer(format_delivery(delivery, show_money=show_money), parse_mode="HTML")
+
+
+# --- balance ------------------------------------------------------------------
+
+
+@router.message(F.text == BUYER_BALANCE)
+async def my_balance(message: Message) -> None:
+    user = db.get_user(message.from_user.id)
+    if not user.get("is_buyer_admin"):
+        await message.answer("Бу маълумот фақат компания раҳбари учун.")
+        return
+    if user["company_name"]:
+        members = db.list_company_buyers(user["company_name"])
+    else:
+        members = [user]
+    buyer_ids = [m["telegram_id"] for m in members]
+
+    initial = sum(float(m.get("initial_balance") or 0) for m in members)
+    sold = db.sum_sales(buyer_ids)
+    paid = db.sum_payments(buyer_ids)
+    balance = round(initial + sold - paid, 2)
+
+    if balance > 0:
+        state_line = f"🔴 <b>Қарздорлик: {fmt_money(balance)} сўм</b>"
+    elif balance < 0:
+        state_line = f"🟢 <b>Ортиқча тўлов: {fmt_money(-balance)} сўм</b>"
+    else:
+        state_line = "🟢 <b>Қарз йўқ: 0 сўм</b>"
+
+    lines = ["💰 <b>Менинг балансим</b>", "─────────────────────"]
+    if user["company_name"]:
+        lines.append(f"🏢 Компания: <b>{user['company_name']}</b>")
+    lines += [
+        f"💼 Бошланғич: <b>{fmt_money(initial)} сўм</b>",
+        f"📦 Сотилган товар: <b>+{fmt_money(sold)} сўм</b>",
+        f"💵 Тўланган: <b>−{fmt_money(paid)} сўм</b>",
+        "─────────────────────",
+        state_line,
+    ]
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 # --- buyer-admin: company-wide report -----------------------------------------
@@ -439,3 +509,138 @@ async def export_company_deliveries(callback: CallbackQuery) -> None:
     deliveries = _company_deliveries(user)
     await callback.message.answer_document(deliveries_to_csv(deliveries))
     await callback.answer()
+
+
+# --- Рахбар: object & employee management (buyer-admin only) -------------------
+
+
+def _object_pick_keyboard(objects: list[dict]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=o["name"], callback_data=f"empobj:{o['id']}")]
+            for o in objects
+        ]
+    )
+
+
+@router.message(F.text == BUYER_MANAGE)
+async def open_manage(message: Message) -> None:
+    user = db.get_user(message.from_user.id)
+    if not user.get("is_buyer_admin"):
+        return
+    if not user.get("company_name"):
+        await message.answer("Сизга компания номи бириктирилмаган — админга мурожаат қилинг.")
+        return
+    await message.answer("🏗 <b>Объект ва ходимлар бошқаруви</b>", reply_markup=buyer_manage_menu(), parse_mode="HTML")
+
+
+@router.message(F.text == BUYER_BACK_TO_MENU)
+async def manage_back(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    user = db.get_user(message.from_user.id)
+    await message.answer("Бош менюга қайтдингиз.", reply_markup=buyer_menu(user.get("is_buyer_admin", False)))
+
+
+@router.message(F.text == BUYER_ADD_OBJECT)
+async def add_object_start(message: Message, state: FSMContext) -> None:
+    user = db.get_user(message.from_user.id)
+    if not user.get("is_buyer_admin") or not user.get("company_name"):
+        return
+    await state.set_state(BuyerAddObject.entering_name)
+    await message.answer("Янги объект номини киритинг:")
+
+
+@router.message(BuyerAddObject.entering_name, F.text)
+async def add_object_save(message: Message, state: FSMContext) -> None:
+    user = db.get_user(message.from_user.id)
+    name = message.text.strip()
+    db.create_object(user["company_name"], name)
+    await state.clear()
+    await message.answer(f"✅ Объект қўшилди: <b>{name}</b>", parse_mode="HTML", reply_markup=buyer_manage_menu())
+
+
+@router.message(F.text == BUYER_ADD_EMPLOYEE)
+async def add_employee_start(message: Message, state: FSMContext) -> None:
+    user = db.get_user(message.from_user.id)
+    if not user.get("is_buyer_admin") or not user.get("company_name"):
+        return
+    objects = db.list_objects(user["company_name"])
+    if not objects:
+        await message.answer("Аввал камида битта объект қўшинг.", reply_markup=buyer_manage_menu())
+        return
+    await state.set_state(BuyerAddEmployee.choosing_object)
+    await message.answer("Ходим қайси объектга бириктирилади?", reply_markup=_object_pick_keyboard(objects))
+
+
+@router.callback_query(BuyerAddEmployee.choosing_object, F.data.startswith("empobj:"))
+async def add_employee_pick_object(callback: CallbackQuery, state: FSMContext) -> None:
+    user = db.get_user(callback.from_user.id)
+    obj_id = int(callback.data.split(":")[1])
+    obj = next((o for o in db.list_objects(user["company_name"]) if o["id"] == obj_id), None)
+    if obj is None:
+        await callback.answer("Объект топилмади.", show_alert=True)
+        return
+    await state.update_data(object_name=obj["name"])
+    await state.set_state(BuyerAddEmployee.entering_phone)
+    await callback.message.edit_text(f"📍 Объект: {obj['name']}")
+    await callback.message.answer("Ходимнинг телефон рақамини киритинг:")
+    await callback.answer()
+
+
+@router.message(BuyerAddEmployee.entering_phone, F.text)
+async def add_employee_save(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    user = db.get_user(message.from_user.id)
+    phone = message.text.strip()
+    object_name = data.get("object_name")
+    db.create_pending_invite(phone, "buyer", user["company_name"], True, 0.0, object_name)
+    await state.clear()
+    await message.answer(
+        "✅ <b>Ходим таклифномаси сақланди</b>\n"
+        f"🏢 Компания: <b>{user['company_name']}</b>\n"
+        f"📍 Объект: <b>{object_name}</b>\n"
+        f"📱 Телефон: <b>{phone}</b>\n\n"
+        "Ходим биринчи марта /start бериб, шу телефон рақамини юборганда — ҳисоби фаоллашади.",
+        parse_mode="HTML",
+        reply_markup=buyer_manage_menu(),
+    )
+
+
+@router.message(F.text == BUYER_LIST_OBJECTS)
+async def list_objects_and_employees(message: Message) -> None:
+    user = db.get_user(message.from_user.id)
+    if not user.get("is_buyer_admin") or not user.get("company_name"):
+        return
+    company = user["company_name"]
+    objects = db.list_objects(company)
+    members = db.list_company_buyers(company)
+    if not objects and not members:
+        await message.answer("Ҳали объект ва ходимлар йўқ.", reply_markup=buyer_manage_menu())
+        return
+
+    by_object: dict[str, list[dict]] = {}
+    for m in members:
+        by_object.setdefault(m.get("object_name") or "— (объектсиз)", []).append(m)
+
+    lines = [f"🏢 <b>{company}</b>", ""]
+
+    def _emp_lines(emps: list[dict]) -> list[str]:
+        out = []
+        for e in emps:
+            tag = " 👑" if e.get("is_buyer_admin") else ""
+            out.append(f"   • {e['full_name']}{tag}")
+        return out
+
+    object_names = [o["name"] for o in objects]
+    for name in object_names:
+        lines.append(f"📍 <b>{name}</b>")
+        emps = by_object.get(name, [])
+        lines += _emp_lines(emps) if emps else ["   <i>ходим йўқ</i>"]
+
+    for name, emps in by_object.items():
+        if name in object_names:
+            continue
+        lines.append(f"📍 <b>{name}</b>")
+        lines += _emp_lines(emps)
+
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=buyer_manage_menu())

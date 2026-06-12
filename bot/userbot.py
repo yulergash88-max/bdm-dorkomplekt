@@ -22,8 +22,8 @@ from bot.config import (
 )
 from bot.database import db
 from bot.keyboards.delivery import accept_reject_keyboard
-from bot.utils.formatting import format_delivery
-from bot.utils.sales_parser import parse_sale_message
+from bot.utils.formatting import fmt_money, format_delivery
+from bot.utils.sales_parser import ParsedPayment, ParsedSale, parse_group_message
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +81,26 @@ def _resolve_supplier_id(sender_id: int | None) -> int:
     return SYSTEM_SUPPLIER_ID
 
 
-async def _process_sale(text: str, sender_id: int | None = None) -> None:
-    parsed = parse_sale_message(text)
-    if parsed is None:
-        return
+async def _process_message(text: str, sender_id: int | None = None) -> None:
+    parsed = parse_group_message(text)
+    if isinstance(parsed, ParsedSale):
+        await _process_sale(parsed, sender_id)
+    elif isinstance(parsed, ParsedPayment):
+        await _process_payment(parsed)
 
+
+async def _process_sale(parsed: ParsedSale, sender_id: int | None) -> None:
     supplier_id = _resolve_supplier_id(sender_id)
-    delivery = db.create_delivery(supplier_id, parsed.product_name, parsed.quantity_kub, parsed.car_number, parsed.sale_datetime)
+    delivery = db.create_delivery(
+        supplier_id,
+        parsed.product_name,
+        parsed.quantity_kub,
+        parsed.car_number,
+        parsed.sale_datetime,
+        price=parsed.price,
+        amount=parsed.amount,
+        paid=parsed.paid,
+    )
     logger.info(
         "Userbot: created delivery id=%s product=%r kub=%s supplier_id=%s",
         delivery["id"], parsed.product_name, parsed.quantity_kub, supplier_id,
@@ -102,7 +115,7 @@ async def _process_sale(text: str, sender_id: int | None = None) -> None:
             await _main_bot.send_message(
                 member["telegram_id"],
                 "📦 <b>Янги етказиб бериш!</b>\nҚабул қилинг ёки рад этинг:\n\n"
-                + format_delivery(assigned),
+                + format_delivery(assigned, show_money=member.get("is_buyer_admin", False)),
                 reply_markup=accept_reject_keyboard(assigned["id"]),
                 parse_mode="HTML",
             )
@@ -115,9 +128,48 @@ async def _process_sale(text: str, sender_id: int | None = None) -> None:
             await _main_bot.send_message(
                 admin_id,
                 "🔔 <b>Янги етказиб бериш — харидор тайинланмаган</b>"
-                + note + "\n\n" + format_delivery(delivery),
+                + note + "\n\n" + format_delivery(delivery, show_money=True),
                 parse_mode="HTML",
             )
+
+
+async def _process_payment(parsed: ParsedPayment) -> None:
+    company_members = db.find_buyer_company(parsed.client_name) if parsed.client_name else []
+    logger.info(
+        "Userbot: payment client=%r amount=%s matched=%s",
+        parsed.client_name, parsed.amount, len(company_members),
+    )
+
+    if not company_members:
+        db.create_payment(None, parsed.client_name, parsed.amount, parsed.sale_datetime)
+        for admin_id in ADMIN_IDS:
+            await _main_bot.send_message(
+                admin_id,
+                "💵 <b>Тўлов келди — харидор топилмади</b>\n"
+                f"Мижоз: «<b>{parsed.client_name}</b>»\n"
+                f"Пул олинди: <b>{fmt_money(parsed.amount)} сўм</b>",
+                parse_mode="HTML",
+            )
+        return
+
+    primary = next((m for m in company_members if m["is_buyer_admin"]), company_members[0])
+    db.create_payment(primary["telegram_id"], parsed.client_name, parsed.amount, parsed.sale_datetime)
+
+    member_ids = [m["telegram_id"] for m in company_members]
+    initial = sum(float(m.get("initial_balance") or 0) for m in company_members)
+    balance = round(initial + db.sum_sales(member_ids) - db.sum_payments(member_ids), 2)
+
+    # Money/balance is for the company head (Рахбар) only — not object employees.
+    for member in company_members:
+        if not member.get("is_buyer_admin"):
+            continue
+        await _main_bot.send_message(
+            member["telegram_id"],
+            "💵 <b>Тўлов қайд этилди!</b>\n"
+            f"Пул олинди: <b>{fmt_money(parsed.amount)} сўм</b>\n"
+            f"🧾 Жорий қарз (баланс): <b>{fmt_money(balance)} сўм</b>",
+            parse_mode="HTML",
+        )
 
 
 async def run_userbot() -> None:
@@ -136,7 +188,7 @@ async def run_userbot() -> None:
         sender_name = message.from_user.username if message.from_user else "unknown"
         logger.info("Userbot: from=%s (id=%s) text=%r", sender_name, sender_id, text[:80])
         await _forward_to_suppliers(text, exclude_id=sender_id)
-        await _process_sale(text, sender_id)
+        await _process_message(text, sender_id)
 
     try:
         await client.start()

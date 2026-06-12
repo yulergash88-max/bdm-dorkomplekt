@@ -64,3 +64,44 @@ create table if not exists pending_invites (
     created_at timestamptz not null default now()
 );
 create index if not exists idx_pending_invites_normalized_phone on pending_invites (normalized_phone);
+
+-- Migration: financial figures parsed from the sales-feed "Тип: Савдо" message.
+--   price  — "Цена"  (price per m³)
+--   amount — "Сумма" (value of goods sold — drives the running balance)
+--   paid   — "Туланди" (paid at point of sale; informational only)
+alter table deliveries add column if not exists price numeric(14, 2);
+alter table deliveries add column if not exists amount numeric(14, 2);
+alter table deliveries add column if not exists paid numeric(14, 2);
+
+-- Buyer balance ledger.
+-- balance = initial_balance + Σ(deliveries.amount) − Σ(payments.amount)
+--   initial_balance — starting debt entered by the admin when adding/editing a buyer
+--   deliveries.amount — goods sold ("Тип: Савдо" → "Сумма"), increases debt
+--   payments.amount   — money received ("Тип: Тўлов" → "Пул олинди"), decreases debt
+alter table users add column if not exists initial_balance numeric(14, 2) not null default 0;
+alter table pending_invites add column if not exists initial_balance numeric(14, 2) not null default 0;
+
+create table if not exists payments (
+    id bigserial primary key,
+    buyer_id bigint references users (telegram_id),
+    client_name text,
+    amount numeric(14, 2) not null,
+    sale_datetime text,
+    created_at timestamptz not null default now()
+);
+create index if not exists idx_payments_buyer on payments (buyer_id);
+
+-- Buyer sites ("объект"). A buyer company has objects; each receiver employee is
+-- tied to one object. The group message carries no object, so a delivery is
+-- broadcast to all company employees and tagged with the accepter's object_name.
+create table if not exists objects (
+    id bigserial primary key,
+    company_name text not null,
+    name text not null,
+    created_at timestamptz not null default now()
+);
+create index if not exists idx_objects_company on objects (company_name);
+
+alter table users add column if not exists object_name text;            -- employee's site
+alter table pending_invites add column if not exists object_name text;
+alter table deliveries add column if not exists object_name text;       -- site it was received at

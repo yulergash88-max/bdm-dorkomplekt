@@ -21,7 +21,19 @@ STATUS_ICONS = {
 }
 
 
-def format_delivery(delivery: dict) -> str:
+def fmt_money(value) -> str:
+    """1250000 -> '1 250 000', 56666.67 -> '56 666,67' (space thousands, comma decimal)."""
+    if value is None:
+        return "—"
+    s = f"{float(value):,.2f}".replace(",", " ").replace(".", ",")
+    if s.endswith(",00"):
+        s = s[:-3]
+    return s
+
+
+def format_delivery(delivery: dict, show_money: bool = False) -> str:
+    """show_money: include price/sum lines. Off by default so receivers (object
+    employees) only ever see m³; pass True for the company head, admin, supplier."""
     status = delivery["status"]
     icon = STATUS_ICONS.get(status, "•")
     label = STATUS_LABELS.get(status, status)
@@ -36,6 +48,8 @@ def format_delivery(delivery: dict) -> str:
         lines.append(f"🕐 Сана: <b>{delivery['sale_datetime']}</b>")
     if delivery.get("car_number"):
         lines.append(f"🚛 Машина: <b>{delivery['car_number']}</b>")
+    if delivery.get("object_name"):
+        lines.append(f"📍 Объект: <b>{delivery['object_name']}</b>")
 
     lines.append(f"📐 Юборилди: <b>{delivery['supplier_kub']} м³</b>")
 
@@ -52,6 +66,14 @@ def format_delivery(delivery: dict) -> str:
         diff = delivery["kub_difference"]
         sign = "+" if diff > 0 else ""
         lines.append(f"📊 Фарқ: <b>{sign}{diff} м³</b>")
+
+    if show_money:
+        if delivery.get("price") is not None:
+            lines.append(f"💵 Нарх: <b>{fmt_money(delivery['price'])} сўм</b>")
+        if delivery.get("amount") is not None:
+            lines.append(f"💰 Сумма: <b>{fmt_money(delivery['amount'])} сўм</b>")
+        if delivery.get("paid") is not None:
+            lines.append(f"✅ Туланди: <b>{fmt_money(delivery['paid'])} сўм</b>")
 
     return "\n".join(lines)
 
@@ -77,6 +99,7 @@ def format_user(user: dict) -> str:
         lines.append(f"🏢 Компания: <b>{user.get('company_name') or '—'}</b>")
         weighing = user.get("requires_weighing", True)
         lines.append(f"⚖️ Қабул тури: <b>{'Тарози билан' if weighing else 'Юборилган ҳажм билан'}</b>")
+        lines.append(f"💼 Бошланғич баланс: <b>{fmt_money(user.get('initial_balance') or 0)} сўм</b>")
 
     lines += [
         f"📱 Телефон: <b>{user['phone'] or '—'}</b>",

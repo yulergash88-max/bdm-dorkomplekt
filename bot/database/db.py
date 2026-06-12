@@ -66,6 +66,7 @@ def list_all_users() -> list[dict]:
 def create_user_by_admin(
     telegram_id: int, full_name: str, phone: str, role: str,
     company_name: str | None = None, requires_weighing: bool = True,
+    initial_balance: float = 0.0, object_name: str | None = None,
 ) -> dict:
     """Admin-added users are pre-approved — the admin is vouching for them directly."""
     result = (
@@ -79,6 +80,8 @@ def create_user_by_admin(
                 "company_name": company_name,
                 "is_approved": True,
                 "requires_weighing": requires_weighing,
+                "initial_balance": initial_balance,
+                "object_name": object_name,
             }
         )
         .execute()
@@ -86,7 +89,11 @@ def create_user_by_admin(
     return result.data[0]
 
 
-def create_pending_invite(phone: str, role: str, company_name: str | None = None, requires_weighing: bool = True) -> dict:
+def create_pending_invite(
+    phone: str, role: str, company_name: str | None = None,
+    requires_weighing: bool = True, initial_balance: float = 0.0,
+    object_name: str | None = None,
+) -> dict:
     """Holds an admin-added user without a known Telegram ID until they claim it via /start."""
     result = (
         supabase.table("pending_invites")
@@ -98,6 +105,8 @@ def create_pending_invite(phone: str, role: str, company_name: str | None = None
                 "role": role,
                 "company_name": company_name,
                 "requires_weighing": requires_weighing,
+                "initial_balance": initial_balance,
+                "object_name": object_name,
             }
         )
         .execute()
@@ -120,9 +129,32 @@ def claim_pending_invite(invite: dict, telegram_id: int, phone: str, tg_full_nam
     user = create_user_by_admin(
         telegram_id, tg_full_name, phone, invite["role"],
         invite.get("company_name"), invite.get("requires_weighing", True),
+        invite.get("initial_balance") or 0.0, invite.get("object_name"),
     )
     supabase.table("pending_invites").delete().eq("id", invite["id"]).execute()
     return user
+
+
+# --- objects (buyer sites) -------------------------------------------------
+
+def create_object(company_name: str, name: str) -> dict:
+    result = (
+        supabase.table("objects")
+        .insert({"company_name": company_name, "name": name})
+        .execute()
+    )
+    return result.data[0]
+
+
+def list_objects(company_name: str) -> list[dict]:
+    result = (
+        supabase.table("objects")
+        .select("*")
+        .eq("company_name", company_name)
+        .order("name")
+        .execute()
+    )
+    return result.data
 
 
 def find_buyer_company(client_name: str) -> list[dict]:
@@ -157,7 +189,16 @@ def ensure_system_supplier(telegram_id: int, full_name: str) -> None:
 
 # --- deliveries -----------------------------------------------------------
 
-def create_delivery(supplier_id: int, product_name: str, supplier_kub: float, car_number: str | None = None, sale_datetime: str | None = None) -> dict:
+def create_delivery(
+    supplier_id: int,
+    product_name: str,
+    supplier_kub: float,
+    car_number: str | None = None,
+    sale_datetime: str | None = None,
+    price: float | None = None,
+    amount: float | None = None,
+    paid: float | None = None,
+) -> dict:
     result = (
         supabase.table("deliveries")
         .insert(
@@ -167,6 +208,9 @@ def create_delivery(supplier_id: int, product_name: str, supplier_kub: float, ca
                 "supplier_kub": supplier_kub,
                 "car_number": car_number,
                 "sale_datetime": sale_datetime,
+                "price": price,
+                "amount": amount,
+                "paid": paid,
                 "status": "new",
             }
         )
@@ -188,6 +232,13 @@ def assign_buyer(delivery_id: int, buyer_id: int) -> None:
 
 def accept_delivery(delivery_id: int) -> None:
     supabase.table("deliveries").update({"status": "accepted"}).eq("id", delivery_id).execute()
+
+
+def set_delivery_object(delivery_id: int, object_name: str | None) -> None:
+    """Tags a delivery with the object it was received at (the accepting employee's site)."""
+    if not object_name:
+        return
+    supabase.table("deliveries").update({"object_name": object_name}).eq("id", delivery_id).execute()
 
 
 def reject_delivery(delivery_id: int) -> None:
@@ -334,6 +385,41 @@ def list_company_buyers(company_name: str) -> list[dict]:
         .execute()
     )
     return result.data
+
+
+# --- payments & balance ----------------------------------------------------
+
+def create_payment(buyer_id: int | None, client_name: str | None, amount: float, sale_datetime: str | None = None) -> dict:
+    """Records a "Тип: Тўлов" event — money received from a client."""
+    result = (
+        supabase.table("payments")
+        .insert(
+            {
+                "buyer_id": buyer_id,
+                "client_name": client_name,
+                "amount": amount,
+                "sale_datetime": sale_datetime,
+            }
+        )
+        .execute()
+    )
+    return result.data[0]
+
+
+def sum_sales(buyer_ids: list[int]) -> float:
+    """Total value of goods sold ("Сумма") to these buyers."""
+    if not buyer_ids:
+        return 0.0
+    result = supabase.table("deliveries").select("amount").in_("buyer_id", buyer_ids).execute()
+    return round(sum(float(row["amount"]) for row in result.data if row.get("amount") is not None), 2)
+
+
+def sum_payments(buyer_ids: list[int]) -> float:
+    """Total money received ("Пул олинди") from these buyers."""
+    if not buyer_ids:
+        return 0.0
+    result = supabase.table("payments").select("amount").in_("buyer_id", buyer_ids).execute()
+    return round(sum(float(row["amount"]) for row in result.data if row.get("amount") is not None), 2)
 
 
 def list_deliveries_by_company(company_name: str, status: str | None = None) -> list[dict]:

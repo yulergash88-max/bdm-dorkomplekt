@@ -42,7 +42,7 @@ from bot.keyboards.users import (
 from bot.states import AdminAddUser, AdminEditUser, AdminSetCoefficient, AdminSetProductCoefficient
 from bot.utils.access import require_admin
 from bot.utils.export import deliveries_to_csv, users_to_csv
-from bot.utils.formatting import format_delivery, format_user
+from bot.utils.formatting import fmt_money, format_delivery, format_user
 from bot.utils.reports import (
     build_delivery_stats,
     build_user_activity,
@@ -62,7 +62,7 @@ def _export_keyboard(callback_data: str) -> InlineKeyboardMarkup:
 router = Router(name="admin")
 router.message.filter(require_admin(ADMIN_IDS))
 
-EDIT_FIELD_LABELS = {"full_name": "Исм-фамилия", "phone": "Телефон"}
+EDIT_FIELD_LABELS = {"full_name": "Исм-фамилия", "phone": "Телефон", "initial_balance": "Бошланғич баланс"}
 
 
 async def notify_user(message_or_callback, telegram_id: int, text: str) -> None:
@@ -142,7 +142,7 @@ async def unassigned_deliveries(message: Message) -> None:
 
     for delivery in deliveries:
         await message.answer(
-            format_delivery(delivery),
+            format_delivery(delivery, show_money=True),
             reply_markup=assign_buyer_keyboard(delivery["id"], approved_buyers),
             parse_mode="HTML",
         )
@@ -163,6 +163,9 @@ async def assign_buyer(callback: CallbackQuery) -> None:
         return
 
     buyer = db.get_user(buyer_id)
+    if buyer is None:
+        await callback.answer("Фойдаланувчи топилмади.", show_alert=True)
+        return
     db.assign_buyer(delivery_id, buyer_id)
     updated = db.get_delivery(delivery_id)
 
@@ -174,7 +177,8 @@ async def assign_buyer(callback: CallbackQuery) -> None:
 
     await callback.message.bot.send_message(
         buyer_id,
-        "📦 <b>Сизга янги етказиб бериш тайинланди:</b>\n\n" + format_delivery(updated),
+        "📦 <b>Сизга янги етказиб бериш тайинланди:</b>\n\n"
+        + format_delivery(updated, show_money=buyer.get("is_buyer_admin", False)),
         parse_mode="HTML",
     )
 
@@ -187,7 +191,7 @@ async def all_deliveries(message: Message) -> None:
         return
 
     for delivery in deliveries[:30]:
-        await message.answer(format_delivery(delivery), parse_mode="HTML")
+        await message.answer(format_delivery(delivery, show_money=True), parse_mode="HTML")
 
 
 # --- add user ---------------------------------------------------------------
@@ -209,22 +213,26 @@ async def add_user_choose_role(callback: CallbackQuery, state: FSMContext) -> No
     await callback.message.edit_text(f"Танланган роль: {ROLE_LABELS[role]}")
     await callback.answer()
 
+    await state.set_state(AdminAddUser.entering_company_name)
     if role == "buyer":
-        await state.set_state(AdminAddUser.entering_company_name)
         await callback.message.answer("Фойдаланувчининг компания номини киритинг:")
     else:
-        await state.set_state(AdminAddUser.entering_phone)
-        await callback.message.answer("Фойдаланувчининг телефон рақамини киритинг:")
+        await callback.message.answer("Фойдаланувчининг компания номини киритинг (масалан: QORAUZAK SHEVEN):")
 
 
 @router.message(AdminAddUser.entering_company_name, F.text)
 async def add_user_enter_company_name(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
     await state.update_data(company_name=message.text.strip())
-    await state.set_state(AdminAddUser.choosing_weighing)
-    await message.answer(
-        "Бу харидор қандай қабул қилади?",
-        reply_markup=weighing_type_keyboard(),
-    )
+    if data.get("role") == "buyer":
+        await state.set_state(AdminAddUser.choosing_weighing)
+        await message.answer(
+            "Бу харидор қандай қабул қилади?",
+            reply_markup=weighing_type_keyboard(),
+        )
+    else:
+        await state.set_state(AdminAddUser.entering_phone)
+        await message.answer("Фойдаланувчининг телефон рақамини киритинг:")
 
 
 @router.callback_query(AdminAddUser.choosing_weighing, F.data.startswith("set_weighing:"))
@@ -241,10 +249,35 @@ async def add_user_choose_weighing(callback: CallbackQuery, state: FSMContext) -
 @router.message(AdminAddUser.entering_phone, F.text)
 async def add_user_enter_phone(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    phone = message.text.strip()
+    await state.update_data(phone=message.text.strip())
+
+    if data.get("role") == "buyer":
+        await state.set_state(AdminAddUser.entering_balance)
+        await message.answer(
+            "Харидорнинг бошланғич балансини киритинг (қарзи бўлмаса 0):"
+        )
+    else:
+        await _finalize_invite(message, state, initial_balance=0.0)
+
+
+@router.message(AdminAddUser.entering_balance, F.text)
+async def add_user_enter_balance(message: Message, state: FSMContext) -> None:
+    try:
+        balance = float(message.text.strip().replace(" ", "").replace(" ", "").replace(",", "."))
+    except ValueError:
+        await message.answer("Илтимос, рақам киритинг (масалан: 1000000 ёки 0):")
+        return
+    await _finalize_invite(message, state, initial_balance=balance)
+
+
+async def _finalize_invite(message: Message, state: FSMContext, initial_balance: float) -> None:
+    data = await state.get_data()
+    phone = data["phone"]
     requires_weighing = data.get("requires_weighing", True)
 
-    invite = db.create_pending_invite(phone, data["role"], data.get("company_name"), requires_weighing)
+    invite = db.create_pending_invite(
+        phone, data["role"], data.get("company_name"), requires_weighing, initial_balance
+    )
     await state.clear()
 
     weighing_label = "⚖️ Тарози билан" if requires_weighing else "📐 Юборилган ҳажм билан"
@@ -254,8 +287,10 @@ async def add_user_enter_phone(message: Message, state: FSMContext) -> None:
     ]
     if invite.get("company_name"):
         lines.append(f"Компания: {invite['company_name']}")
+    if invite["role"] == "buyer":
+        lines.append(f"Қабул тури: {weighing_label}")
+        lines.append(f"Бошланғич баланс: {fmt_money(initial_balance)} сўм")
     lines += [
-        f"Қабул тури: {weighing_label}",
         f"Телефон: {invite['phone']}",
         "\nФойдаланувчи биринчи марта /start берганда ва шу телефон рақамини юборганда — "
         "исми Telegram акаунтидан автоматик олиниб, ҳисоб фаоллашади.",
@@ -329,6 +364,13 @@ async def edit_user_save_value(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     telegram_id, field = data["telegram_id"], data["field"]
     new_value = message.text.strip()
+
+    if field == "initial_balance":
+        try:
+            new_value = float(new_value.replace(" ", "").replace(" ", "").replace(",", "."))
+        except ValueError:
+            await message.answer("Илтимос, рақам киритинг (масалан: 1000000 ёки 0):")
+            return
 
     db.update_user(telegram_id, **{field: new_value})
     await state.clear()

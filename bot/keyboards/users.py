@@ -21,6 +21,7 @@ def edit_field_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="Исм-фамилия", callback_data=f"edit_field:{telegram_id}:full_name")],
             [InlineKeyboardButton(text="Телефон", callback_data=f"edit_field:{telegram_id}:phone")],
+            [InlineKeyboardButton(text="💼 Бошланғич баланс", callback_data=f"edit_field:{telegram_id}:initial_balance")],
         ]
     )
 

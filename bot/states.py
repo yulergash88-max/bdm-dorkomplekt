@@ -22,6 +22,7 @@ class AdminAddUser(StatesGroup):
     entering_company_name = State()
     choosing_weighing = State()
     entering_phone = State()
+    entering_balance = State()
 
 
 class AdminEditUser(StatesGroup):
@@ -36,3 +37,12 @@ class AdminSetProductCoefficient(StatesGroup):
 class DateRangeReport(StatesGroup):
     entering_start_date = State()
     entering_end_date = State()
+
+
+class BuyerAddObject(StatesGroup):
+    entering_name = State()
+
+
+class BuyerAddEmployee(StatesGroup):
+    choosing_object = State()
+    entering_phone = State()

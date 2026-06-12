@@ -5,6 +5,7 @@ SUPPLIER_MY_DELIVERIES = "Менинг етказиб беришларим"
 
 BUYER_PENDING = "Кутилаётган етказиб беришлар"
 BUYER_HISTORY = "Тарих"
+BUYER_BALANCE = "💰 Менинг балансим"
 
 ADMIN_PENDING_USERS = "Тасдиқ кутаётган фойдаланувчилар"
 ADMIN_UNASSIGNED = "Харидор тайинланмаган етказиб беришлар"
@@ -23,6 +24,11 @@ ADMIN_TOGGLE_WEIGHING = "⚖️ Тарози белгисини ўзгартир
 
 BUYER_COMPANY_REPORT = "Компания ҳисоботи"
 BUYER_DATE_REPORT = "📊 Ҳисобот (сана бўйича)"
+BUYER_MANAGE = "🏗 Объект ва ходимлар"
+BUYER_ADD_OBJECT = "➕ Объект қўшиш"
+BUYER_ADD_EMPLOYEE = "➕ Ходим қўшиш"
+BUYER_LIST_OBJECTS = "📋 Объект/ходимлар рўйхати"
+BUYER_BACK_TO_MENU = "⬅️ Орқага"
 SUPPLIER_DATE_REPORT = "📊 Ҳисобот (сана бўйича)"
 
 ADMIN_COEFFICIENT = "Коэффициент созламаси ⚙️"
@@ -47,10 +53,25 @@ def buyer_menu(is_buyer_admin: bool = False) -> ReplyKeyboardMarkup:
         [KeyboardButton(text=BUYER_HISTORY)],
         [KeyboardButton(text=BUYER_DATE_REPORT)],
     ]
+    # Money/balance is for the company head (Рахбар) only — object employees see only m³.
     if is_buyer_admin:
+        keyboard.append([KeyboardButton(text=BUYER_BALANCE)])
         keyboard.append([KeyboardButton(text=BUYER_COMPANY_REPORT)])
+        keyboard.append([KeyboardButton(text=BUYER_MANAGE)])
 
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def buyer_manage_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BUYER_ADD_OBJECT)],
+            [KeyboardButton(text=BUYER_ADD_EMPLOYEE)],
+            [KeyboardButton(text=BUYER_LIST_OBJECTS)],
+            [KeyboardButton(text=BUYER_BACK_TO_MENU)],
+        ],
+        resize_keyboard=True,
+    )
 
 
 def admin_menu() -> ReplyKeyboardMarkup:
